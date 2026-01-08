@@ -1,4 +1,4 @@
-# CoreRank - 工业级高性能游戏匹配系统
+# CoreRank - 高性能游戏匹配系统
 
 ![Go Version](https://img.shields.io/badge/Go-1.25.0-00ADD8?style=flat-square&logo=go)
 ![Redis](https://img.shields.io/badge/Redis-7.2-DC382D?style=flat-square&logo=redis&logoColor=white)

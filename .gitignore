@@ -1,25 +1,53 @@
-# 二进制产物
-bin/
-obj/
+# Binaries
+# ------------------------------------------------------------------------------
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+*.test
+*.out
+bin/
 
-# Go 依赖与缓存
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency Directories (usually not tracked, but go.sum is tracked)
+# ------------------------------------------------------------------------------
 vendor/
-go.sum
-*.log
 
-# Docker 运行时产生的本地数据
-data/redis/
-data/prometheus/
-data/grafana/
-
-# IDE 配置文件
-.vscode/
+# IDEs and Editors
+# ------------------------------------------------------------------------------
 .idea/
-
-# 操作系统临时文件
+.vscode/
+*.swp
+*.swo
+*~
 .DS_Store
+
+# Data and Logs
+# ------------------------------------------------------------------------------
+# Ignore the entire data directory (Redis dumps, Grafana DB, Prometheus data)
+data/
+
+# Log files
+*.log
+logs/
+
+# Database files (in case they appear elsewhere)
+*.db
+*.sqlite
+*.rdb
+*.aof
+
+# OS specific
+# ------------------------------------------------------------------------------
+Thumbs.db
+
+# Project specific
+# ------------------------------------------------------------------------------
+# Valid only for this project context
+tmp/
