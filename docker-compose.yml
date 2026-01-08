@@ -1,0 +1,61 @@
+services:
+  # ============================================================================
+  # Redis - 核心数据存储
+  # ============================================================================
+  # Redis 承担匹配池（ZSet）和排行榜（ZSet）的存储职责
+  # 使用 Alpine 镜像减小体积，appendonly 保证数据持久化
+  corerank-redis:
+    image: redis:7.2-alpine
+    container_name: corerank-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # ============================================================================
+  # Prometheus - 监控数据采集
+  # ============================================================================
+  # Prometheus 定时抓取 Go 服务暴露的 /metrics 端点
+  # 存储时序数据，支持 PromQL 查询
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: corerank-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      # 挂载配置文件
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      # 持久化存储
+      - ./data/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      # 允许容器访问宿主机（Windows/Mac Docker Desktop）
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ============================================================================
+  # Grafana - 监控数据可视化
+  # ============================================================================
+  # Grafana 连接 Prometheus 数据源，提供可视化仪表盘
+  # 默认账号密码：admin / admin
+  grafana:
+    image: grafana/grafana:latest
+    container_name: corerank-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      # 持久化存储（仪表盘、数据源配置等）
+      - ./data/grafana:/var/lib/grafana
+    environment:
+      # 初始管理员密码
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # 允许匿名访问（仅开发环境）
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    depends_on:
+      - prometheus
+    restart: unless-stopped

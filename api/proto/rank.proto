@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package corerank.v1;
+
+option go_package = "CoreRank/api/proto;proto";
+
+// ============================================================================
+// CoreRank 游戏匹配与排行榜服务协议定义
+// 
+// 本协议定义了高并发游戏匹配系统的核心数据结构与 RPC 服务接口。
+// 设计原则：
+//   1. 消息结构简洁，减少序列化开销
+//   2. 支持批量操作，降低网络 RTT
+//   3. 预留扩展字段，兼容未来需求
+// ============================================================================
+
+// Player 玩家核心数据模型
+// 
+// 在游戏后端场景中，Player 是所有业务逻辑的核心实体。
+// 我们只保留匹配和排名相关的必要字段，避免传输冗余数据。
+message Player {
+    // 玩家唯一标识符（通常为 UUID 或雪花算法生成的 ID）
+    string player_id = 1;
+    
+    // 玩家昵称（用于排行榜展示）
+    string nickname = 2;
+    
+    // MMR 分数（Matchmaking Rating）
+    // 用于匹配算法的核心指标，影响对手匹配范围
+    int64 mmr_score = 3;
+    
+    // 排行榜分数
+    // 与 MMR 分离，支持不同的排名维度（如击杀数、胜场数等）
+    int64 rank_score = 4;
+    
+    // 分数更新时间戳（Unix 毫秒）
+    // 用于"同分异位"排序：相同分数时，先达成者排名更高
+    int64 score_timestamp = 5;
+}
+
+// MatchRequest 匹配请求消息
+// 
+// 玩家发起匹配时发送此消息，系统将根据 MMR 分数寻找合适对手。
+message MatchRequest {
+    // 发起匹配的玩家 ID
+    string player_id = 1;
+    
+    // 当前 MMR 分数
+    int64 mmr_score = 2;
+    
+    // 匹配模式（预留，支持多种匹配模式如 1v1, 5v5 等）
+    string match_mode = 3;
+    
+    // 最大等待时间（毫秒）
+    // 超过此时间后，系统将放宽匹配条件或返回超时
+    int64 max_wait_ms = 4;
+}
+
+// MatchResponse 匹配响应消息
+// 
+// 匹配成功后返回此消息，包含对手信息和房间分配结果。
+message MatchResponse {
+    // 匹配状态码
+    // 0: 成功, 1: 等待中, 2: 超时, 3: 取消
+    int32 status = 1;
+    
+    // 状态描述信息
+    string message = 2;
+    
+    // 匹配到的对手列表
+    repeated Player opponents = 3;
+    
+    // 分配的房间/战斗服务器 ID
+    string room_id = 4;
+    
+    // 实际等待时长（毫秒）
+    int64 wait_duration_ms = 5;
+}
+
+// UpdateScoreRequest 更新分数请求
+message UpdateScoreRequest {
+    // 玩家 ID
+    string player_id = 1;
+    
+    // 新的排行榜分数
+    int64 new_score = 2;
+    
+    // 分数变化类型：ABSOLUTE（绝对值）/ INCREMENT（增量）
+    string change_type = 3;
+}
+
+// UpdateScoreResponse 更新分数响应
+message UpdateScoreResponse {
+    // 操作是否成功
+    bool success = 1;
+    
+    // 更新后的玩家信息（包含新排名）
+    Player player = 2;
+    
+    // 当前在排行榜中的排名（1-based）
+    int64 current_rank = 3;
+}
+
+// GetTopRankRequest 获取排行榜请求
+message GetTopRankRequest {
+    // 排行榜类型/维度（如 "weekly", "season", "all_time"）
+    string leaderboard_type = 1;
+    
+    // 获取前 N 名
+    int32 top_n = 2;
+    
+    // 分页偏移量（可选，用于获取"我的附近排名"场景）
+    int64 offset = 3;
+}
+
+// GetTopRankResponse 获取排行榜响应
+message GetTopRankResponse {
+    // 排行榜条目列表
+    repeated RankEntry entries = 1;
+    
+    // 排行榜总人数
+    int64 total_players = 2;
+    
+    // 数据更新时间戳
+    int64 updated_at = 3;
+}
+
+// RankEntry 排行榜条目
+message RankEntry {
+    // 排名（1-based）
+    int64 rank = 1;
+    
+    // 玩家信息
+    Player player = 2;
+}
+
+// ============================================================================
+// RankService 核心服务定义
+// 
+// 提供分数更新和排行榜查询两大核心功能。
+// 在高并发场景下，这两个操作的性能直接影响玩家体验。
+// ============================================================================
+service RankService {
+    // UpdateScore 更新玩家分数
+    // 
+    // 游戏结束后调用，更新玩家的排行榜分数。
+    // 内部使用 Redis ZADD 命令，并采用复合分数算法解决同分排序问题。
+    // 
+    // 性能要求：P99 延迟 < 10ms
+    rpc UpdateScore(UpdateScoreRequest) returns (UpdateScoreResponse);
+    
+    // GetTopRank 获取排行榜
+    // 
+    // 支持获取 Top N 排名和分页查询。
+    // 内部使用 Redis ZREVRANGE 命令，复杂度 O(log N + M)。
+    // 
+    // 性能要求：P99 延迟 < 50ms（Top 100 场景）
+    rpc GetTopRank(GetTopRankRequest) returns (GetTopRankResponse);
+}
