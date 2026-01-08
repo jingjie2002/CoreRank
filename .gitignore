@@ -1,0 +1,25 @@
+# 二进制产物
+bin/
+obj/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go 依赖与缓存
+vendor/
+go.sum
+*.log
+
+# Docker 运行时产生的本地数据
+data/redis/
+data/prometheus/
+data/grafana/
+
+# IDE 配置文件
+.vscode/
+.idea/
+
+# 操作系统临时文件
+.DS_Store

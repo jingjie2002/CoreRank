@@ -9,9 +9,9 @@ import (
 
 const (
 	// MatchPoolKey 匹配池的 Redis Key
-	MatchPoolKey = "match:pool"
+	MatchPoolKey = "{match:pool}"
 	// GlobalRankKey 全局排行榜的 Redis Key
-	GlobalRankKey = "rank:global"
+	GlobalRankKey = "{rank:global}"
 )
 
 // PlayerRepository 玩家数据仓库
