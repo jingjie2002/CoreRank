@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,15 +38,15 @@ import (
 
 const (
 	// serverAddr gRPC 服务器地址
-	serverAddr = "localhost:8080"
+	defaultServerAddr = "localhost:8080"
 
 	// workerCount 并发协程数量
 	// 每个协程模拟一个持续发送请求的客户端
-	workerCount = 100
+	defaultWorkerCount = 100
 
 	// requestsPerWorker 每个协程发送的请求数
 	// 总请求数 = workerCount × requestsPerWorker = 10,000
-	requestsPerWorker = 100
+	defaultRequestsPerWorker = 100
 
 	// minScore 随机分数下限
 	minScore = 0
@@ -66,6 +67,9 @@ var (
 
 func main() {
 	printBanner()
+	serverAddr := envOrDefault("ROBOT_GRPC_ADDR", defaultServerAddr)
+	workerCount := envIntOrDefault("ROBOT_WORKERS", defaultWorkerCount)
+	requestsPerWorker := envIntOrDefault("ROBOT_REQUESTS_PER_WORKER", defaultRequestsPerWorker)
 
 	// =========================================================================
 	// 第一步：建立 gRPC 连接
@@ -268,6 +272,25 @@ func evaluatePerformance(tps float64, successRate float64, avgLatency float64) {
 	fmt.Println()
 }
 
+func envOrDefault(name string, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envIntOrDefault(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
 // printBanner 打印测试程序 Banner
 func printBanner() {
 	banner := `
@@ -278,7 +301,7 @@ func printBanner() {
 \____/\____/_/   \___/_/ |_|\__,_/_/ /_/_/|_|  /_/ |_|\____/_.___/\____/\__/  
                                                                               
   gRPC Stress Testing Robot for CoreRank
-  Go 1.25 | 100 Goroutines | 10,000 gRPC Calls
+  Go 1.25 | Configurable Goroutines | gRPC Calls
 `
 	fmt.Println(banner)
 }

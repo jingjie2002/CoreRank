@@ -148,6 +148,15 @@ Robot 默认参数：
 10000 total requests
 ```
 
+可选环境变量：
+
+```powershell
+$env:ROBOT_GRPC_ADDR="localhost:8080"
+$env:ROBOT_WORKERS="100"
+$env:ROBOT_REQUESTS_PER_WORKER="100"
+go run ./cmd/robot
+```
+
 记录结果时必须包含：
 
 - 总请求数。
@@ -199,15 +208,21 @@ http://localhost:9091/metrics
 
 - gRPC 请求计数。
 - gRPC 延迟直方图。
-- 已注册的匹配相关指标。
+- 匹配成功、取消、超时计数。
+- 匹配票据生命周期事件计数。
+- 匹配票据从创建到终态的耗时直方图。
+- 当前 queued 票据数量。
 
-后续阶段应补：
+关键指标名：
 
-- 匹配成功数。
-- 匹配取消数。
-- 匹配超时数。
-- 匹配池人数。
-- 匹配耗时。
+```text
+corerank_grpc_requests_total
+corerank_grpc_request_latency_seconds
+corerank_matcher_match_total
+corerank_matcher_ticket_events_total
+corerank_matcher_lifecycle_duration_seconds
+corerank_matcher_queued_tickets
+```
 
 ## 8. CI 验证
 
@@ -225,6 +240,7 @@ CI 目标：
 - 执行 `go vet ./...`。
 - 构建 `cmd/server`。
 - 构建 `cmd/robot`。
+- 使用 Node 24 运行时版本的官方 actions，避免 Node.js 20 deprecation warning。
 
 CI 会使用临时 MySQL 容器验证集成测试，但不代表生产环境可用。
 
@@ -267,15 +283,19 @@ RESTful 和 gRPC 最小闭环已覆盖：
 
 ### 压测阶段
 
-必须补：
+已补：
 
 - 压测环境说明。
 - 压测命令。
 - 请求量。
 - 成功率。
 - 平均延迟。
-- P95/P99，只有真实采集后才能写。
 - Redis/MySQL 是否本机或远程。
+
+仍需补：
+
+- P95/P99，只有通过 Prometheus histogram 或专门压测工具真实采集后才能写。
+- Linux 服务器环境下的压测记录。
 
 ## 10. 面试演示建议
 
@@ -285,7 +305,7 @@ RESTful 和 gRPC 最小闭环已覆盖：
 2. 跑 `go test ./...`。
 3. 跑 `python scripts\rest_demo.py`。
 4. 展示 `internal/repository/lua_scripts.go`。
-5. 展示 Robot 压测记录。
+5. 展示 Robot 压测记录 `docs/benchmark.md`。
 6. 展示优化方案和后续 MySQL/匹配生命周期设计。
 
 不要现场临时搭复杂环境。演示重点是稳定、可解释、边界清楚。

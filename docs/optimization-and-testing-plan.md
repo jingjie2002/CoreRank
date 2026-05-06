@@ -197,23 +197,24 @@ rank_snapshots
 要做：
 
 - HTTP/metrics server 优雅关闭。已补基础实现。
-- 接入真实匹配指标：
+- 接入真实匹配指标。已补基础实现：
   - 匹配成功数。
   - 取消数。
   - 超时数。
-  - 匹配池人数。
-  - 匹配耗时。
+  - queued 票据数量。
+  - 匹配票据生命周期耗时。
 - 补 `docs/api.md`。
 - 补 `docs/architecture.md`。
-- 补 `docs/benchmark.md`。
+- 补 `docs/benchmark.md`。已补本机 Robot 压测记录。
+- 补 `docs/demo-guide.md`。已补本地测试与面试演示指南。
 - 整理 `docs/interview-notes.md`。
 
 验收标准：
 
 - 陌生人能按文档在 10 分钟内跑起项目。
-- 压测报告包含环境、命令、结果和限制。
+- 压测报告包含环境、命令、结果和限制。已补本机记录。
 - README 明确区分已实现和未实现。
-- Prometheus 能看到核心指标。
+- Prometheus 能看到核心指标。已补 gRPC 和匹配业务指标。
 
 ## 4. 测试策略总览
 
@@ -275,6 +276,15 @@ go run ./cmd/server
 另开一个终端：
 
 ```powershell
+go run ./cmd/robot
+```
+
+Robot 支持演示参数：
+
+```powershell
+$env:ROBOT_GRPC_ADDR="localhost:8080"
+$env:ROBOT_WORKERS="100"
+$env:ROBOT_REQUESTS_PER_WORKER="100"
 go run ./cmd/robot
 ```
 
@@ -360,10 +370,10 @@ go test ./... -tags=integration
 新增：
 
 - HTTP/metrics server 收到退出信号后的优雅关闭验证。
-- `/metrics` 可访问测试。
-- Robot 压测结果记录。
+- `/metrics` 可访问测试。已补 REST demo 指标检查。
+- Robot 压测结果记录。已补 `docs/benchmark.md`。
 - 压测后排行榜数据正确性检查。
-- Prometheus 指标名称和标签检查。
+- Prometheus 指标名称和标签检查。已补基础检查。
 
 建议压测不要只看 TPS，要记录：
 

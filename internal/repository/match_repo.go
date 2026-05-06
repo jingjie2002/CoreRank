@@ -227,6 +227,10 @@ func (r *PlayerRepository) TimeoutExpiredMatchTickets(ctx context.Context, now i
 	return timedOut, nil
 }
 
+func (r *PlayerRepository) CountQueuedMatchTickets(ctx context.Context) (int64, error) {
+	return r.client.ZCard(ctx, MatchTicketPoolKey).Result()
+}
+
 func (r *PlayerRepository) timeoutMatchTicket(ctx context.Context, ticketID string, now int64) (*MatchTicket, error) {
 	ticket, err := r.GetMatchTicket(ctx, ticketID)
 	if err != nil {

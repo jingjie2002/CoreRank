@@ -41,6 +41,55 @@ var MatchTotalCounter = promauto.NewCounterVec(
 	[]string{"bucket", "status"},
 )
 
+// MatchTicketEventCounter 记录匹配票据生命周期事件。
+//
+// 标签保持低基数：
+// - match_mode: 匹配模式，例如 default、duel
+// - status: queued、matched、cancelled、timeout
+var MatchTicketEventCounter = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: "corerank",
+		Subsystem: "matcher",
+		Name:      "ticket_events_total",
+		Help:      "匹配票据生命周期事件总数，按匹配模式和状态分类",
+	},
+	[]string{"match_mode", "status"},
+)
+
+// MatchLifecycleDurationHistogram 记录匹配票据从创建到终态的耗时。
+var MatchLifecycleDurationHistogram = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Namespace: "corerank",
+		Subsystem: "matcher",
+		Name:      "lifecycle_duration_seconds",
+		Help:      "匹配票据从创建到 matched/cancelled/timeout 的耗时分布（秒）",
+		Buckets: []float64{
+			0.05,
+			0.1,
+			0.25,
+			0.5,
+			1,
+			2.5,
+			5,
+			10,
+			30,
+			60,
+		},
+	},
+	[]string{"match_mode", "status"},
+)
+
+// QueuedTicketsGauge 记录当前仍在匹配票据池中的排队票据数量。
+var QueuedTicketsGauge = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Namespace: "corerank",
+		Subsystem: "matcher",
+		Name:      "queued_tickets",
+		Help:      "当前匹配票据池中的 queued 票据数量",
+	},
+	[]string{"match_mode"},
+)
+
 // ============================================================================
 // 排行榜服务指标
 // ============================================================================
@@ -129,6 +178,36 @@ func RecordMatchTimeout(bucket string) {
 	MatchTotalCounter.WithLabelValues(bucket, "timeout").Inc()
 }
 
+// RecordMatchCancelled 记录匹配取消
+func RecordMatchCancelled(bucket string) {
+	MatchTotalCounter.WithLabelValues(bucket, "cancelled").Inc()
+}
+
+// RecordMatchTicketEvents 记录匹配票据生命周期事件
+func RecordMatchTicketEvents(matchMode string, status string, count int) {
+	if count <= 0 {
+		return
+	}
+	MatchTicketEventCounter.WithLabelValues(normalizeLabel(matchMode), normalizeLabel(status)).Add(float64(count))
+}
+
+// ObserveMatchLifecycle 记录匹配票据从创建到终态的耗时
+func ObserveMatchLifecycle(matchMode string, status string, createdAtMS int64, finishedAtMS int64) {
+	if createdAtMS <= 0 || finishedAtMS < createdAtMS {
+		return
+	}
+	seconds := float64(finishedAtMS-createdAtMS) / 1000
+	MatchLifecycleDurationHistogram.WithLabelValues(normalizeLabel(matchMode), normalizeLabel(status)).Observe(seconds)
+}
+
+// SetQueuedTickets 记录当前排队票据数量
+func SetQueuedTickets(matchMode string, count int64) {
+	if count < 0 {
+		count = 0
+	}
+	QueuedTicketsGauge.WithLabelValues(normalizeLabel(matchMode)).Set(float64(count))
+}
+
 // RecordRequest 记录 gRPC 请求
 func RecordRequest(method, status string) {
 	RequestTotalCounter.WithLabelValues(method, status).Inc()
@@ -137,4 +216,11 @@ func RecordRequest(method, status string) {
 // ObserveLatency 记录接口延迟
 func ObserveLatency(method string, seconds float64) {
 	RequestLatencyHistogram.WithLabelValues(method).Observe(seconds)
+}
+
+func normalizeLabel(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }

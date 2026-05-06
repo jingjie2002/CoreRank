@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"CoreRank/internal/metrics"
 	"CoreRank/internal/repository"
 )
 
@@ -77,6 +78,9 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 	if err := s.playerRepo.CreateMatchTicket(ctx, ticket, req.MaxWait+5*time.Minute); err != nil {
 		return nil, err
 	}
+	defer s.refreshQueuedTicketGauge(ctx)
+	metrics.RecordMatchTicketEvents(req.MatchMode, repository.MatchStatusQueued, 1)
+
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchTicket(ctx, ticket); err != nil {
 			log.Printf("[CoreRank] MySQL match ticket persist failed; continuing with Redis hot path: %v", err)
@@ -120,6 +124,10 @@ func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repo
 			log.Printf("[CoreRank] MySQL match ticket cancellation persist failed; returning Redis ticket result: %v", err)
 		}
 	}
+	metrics.RecordMatchCancelled(ticket.MatchMode)
+	metrics.RecordMatchTicketEvents(ticket.MatchMode, ticket.Status, 1)
+	metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
+	s.refreshQueuedTicketGauge(ctx)
 	return ticket, nil
 }
 
@@ -137,6 +145,14 @@ func (s *MatchService) TimeoutExpiredTickets(ctx context.Context, now time.Time,
 				log.Printf("[CoreRank] MySQL match ticket timeout persist failed; returning Redis timeout result: %v", err)
 			}
 		}
+	}
+	for _, ticket := range tickets {
+		metrics.RecordMatchTimeout(ticket.MatchMode)
+		metrics.RecordMatchTicketEvents(ticket.MatchMode, ticket.Status, 1)
+		metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
+	}
+	if len(tickets) > 0 {
+		s.refreshQueuedTicketGauge(ctx)
 	}
 	return tickets, nil
 }
@@ -196,7 +212,22 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 			}
 		}
 	}
+	metrics.RecordMatchSuccess(matchMode)
+	metrics.RecordMatchTicketEvents(matchMode, repository.MatchStatusMatched, len(tickets))
+	for _, ticket := range tickets {
+		metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
+	}
+	s.refreshQueuedTicketGauge(ctx)
 	return completed, nil
+}
+
+func (s *MatchService) refreshQueuedTicketGauge(ctx context.Context) {
+	count, err := s.playerRepo.CountQueuedMatchTickets(ctx)
+	if err != nil {
+		log.Printf("[CoreRank] refresh queued ticket metric failed: %v", err)
+		return
+	}
+	metrics.SetQueuedTickets("all", count)
 }
 
 func newID(prefix string) string {

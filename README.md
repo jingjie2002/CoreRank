@@ -30,12 +30,12 @@ Go 游戏匹配与排行榜中台
 - MySQL 可选持久化：玩家分数、匹配票据、匹配结果、榜单快照
 - MySQL 故障降级：默认保持 Redis 主链路可用，持久化失败时记录 warning
 - 积分桶扫描与滑动窗口匹配 Worker
-- Prometheus `/metrics` 指标端点
+- Prometheus `/metrics` 指标端点：gRPC 请求、延迟、匹配成功、取消、超时、票据终态耗时、queued 数量
 - RESTful API 与 Prometheus metrics server 支持退出信号下优雅关闭
-- gRPC Robot 压测程序
+- gRPC Robot 压测程序，支持通过环境变量调整目标地址、并发数和请求数
 - RESTful 演示脚本
 - Redis 关键路径测试
-- GitHub Actions CI 基线
+- GitHub Actions CI 基线，使用 Node 24 运行时版本的官方 actions
 
 ## 当前未实现
 
@@ -167,6 +167,15 @@ Robot 默认模拟：
 - 每个 goroutine 发送 100 次 `UpdateScore`。
 - 总计 10000 次 gRPC 请求。
 
+可通过环境变量调整：
+
+```powershell
+$env:ROBOT_GRPC_ADDR="localhost:8080"
+$env:ROBOT_WORKERS="100"
+$env:ROBOT_REQUESTS_PER_WORKER="100"
+go run ./cmd/robot
+```
+
 性能数字只代表当前机器、当前 Redis 和当前测试参数，不代表生产承诺。
 
 ## 验证命令
@@ -199,6 +208,7 @@ python scripts\rest_demo.py
 - MySQL 可选持久化玩家分数、匹配票据、匹配结果和榜单快照。
 - MySQL 故障时默认降级到 Redis 主链路，避免可选持久化层中断核心请求。
 - Prometheus 指标暴露。
+- Prometheus 已记录匹配成功、取消、超时、票据生命周期耗时和 queued 数量等业务指标。
 - RESTful API 和 Prometheus metrics server 支持优雅关闭。
 - Robot 压测脚本和 RESTful 演示脚本。
 - 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
@@ -218,12 +228,14 @@ python scripts\rest_demo.py
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
 2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；真实房间服分配待补。
 3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；基础故障降级已完成，后续继续补更细的业务查询和索引说明。
-4. 可观测性与公开文档：HTTP/metrics 优雅关闭已补；真实匹配指标、API 文档、架构文档、压测报告仍待补。
+4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标和本机压测记录已补；API 文档、架构文档、Grafana/服务器部署验证仍待补。
 
 ## 文档
 
 - [验证指南](./docs/verification.md)
+- [本地测试与面试演示指南](./docs/demo-guide.md)
 - [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
+- [压测记录](./docs/benchmark.md)
 - [面试讲法](./docs/interview-notes.md)
 - [2026-05-06 验证记录](./docs/verification-2026-05-06.md)
 - [技术报告](./CoreRank_Technical_Report.md)

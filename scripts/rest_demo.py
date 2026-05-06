@@ -9,7 +9,9 @@ import urllib.request
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 HTTP_ADDR = "127.0.0.1:18081"
+METRICS_ADDR = "127.0.0.1:19091"
 BASE_URL = f"http://{HTTP_ADDR}"
+METRICS_URL = f"http://{METRICS_ADDR}/metrics"
 
 
 def request(method, path, payload=None):
@@ -21,6 +23,11 @@ def request(method, path, payload=None):
     req = urllib.request.Request(BASE_URL + path, data=data, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=3) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def request_text(url):
+    with urllib.request.urlopen(url, timeout=3) as resp:
+        return resp.read().decode("utf-8")
 
 
 def wait_ready():
@@ -42,7 +49,7 @@ def main():
     env["GOCACHE"] = env.get("GOCACHE", os.path.join(ROOT, ".gocache"))
     env["GRPC_ADDR"] = "127.0.0.1:18080"
     env["HTTP_ADDR"] = HTTP_ADDR
-    env["METRICS_ADDR"] = "127.0.0.1:19091"
+    env["METRICS_ADDR"] = METRICS_ADDR
 
     subprocess.run(["go", "build", "-o", exe_path, "./cmd/server"], cwd=ROOT, env=env, check=True)
 
@@ -107,6 +114,19 @@ def main():
         time.sleep(0.3)
         print(f">>> GET /api/match/tickets/{timeout_ticket['TicketID']}")
         print(json.dumps(request("GET", f"/api/match/tickets/{timeout_ticket['TicketID']}"), ensure_ascii=False, indent=2))
+
+        metrics_body = request_text(METRICS_URL)
+        expected_metrics = [
+            "corerank_matcher_match_total",
+            "corerank_matcher_ticket_events_total",
+            "corerank_matcher_lifecycle_duration_seconds",
+            "corerank_matcher_queued_tickets",
+        ]
+        missing = [name for name in expected_metrics if name not in metrics_body]
+        if missing:
+            raise RuntimeError(f"metrics endpoint is missing expected metrics: {missing}")
+        print(">>> GET /metrics")
+        print("metrics include: " + ", ".join(expected_metrics))
     finally:
         proc.terminate()
         try:
