@@ -41,11 +41,14 @@ const (
 	// 应用名称，用于日志前缀
 	appName = "CoreRank"
 
-	// gRPC 服务端口
-	grpcPort = ":8080"
+	// 默认 gRPC 服务端口
+	defaultGRPCAddr = ":8080"
 
-	// Prometheus 指标暴露端口
-	metricsPort = ":9091"
+	// 默认 Prometheus 指标暴露端口
+	defaultMetricsAddr = ":9091"
+
+	// 默认 RESTful API 端口
+	defaultHTTPAddr = ":8081"
 
 	// 启动超时时间
 	startupTimeout = 10 * time.Second
@@ -54,6 +57,10 @@ const (
 func main() {
 	// 打印启动 Banner
 	printBanner()
+
+	grpcAddr := envOrDefault("GRPC_ADDR", defaultGRPCAddr)
+	httpAddr := envOrDefault("HTTP_ADDR", defaultHTTPAddr)
+	metricsAddr := envOrDefault("METRICS_ADDR", defaultMetricsAddr)
 
 	// 创建带超时的启动 Context
 	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
@@ -107,6 +114,10 @@ func main() {
 	matchWorker := service.NewMatchWorker(playerRepo)
 	fmt.Printf("[%s] ✅ MatchWorker 初始化完成\n", appName)
 
+	// RESTful API 网关
+	httpHandler := handler.NewHTTPHandler(rankService, playerRepo)
+	fmt.Printf("[%s] ✅ RESTful API Handler 初始化完成\n", appName)
+
 	// =========================================================================
 	// 第三步：启动 Prometheus 指标暴露端点
 	// =========================================================================
@@ -122,9 +133,21 @@ func main() {
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
-		fmt.Printf("[%s] 📊 Prometheus 指标暴露在 http://localhost%s/metrics\n", appName, metricsPort)
-		if err := http.ListenAndServe(metricsPort, nil); err != nil {
+		fmt.Printf("[%s] 📊 Prometheus 指标暴露在 http://localhost%s/metrics\n", appName, metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, nil); err != nil {
 			fmt.Printf("[%s] ⚠️ Prometheus HTTP 服务启动失败: %v\n", appName, err)
+		}
+	}()
+
+	go func() {
+		server := &http.Server{
+			Addr:              httpAddr,
+			Handler:           httpHandler,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		fmt.Printf("[%s] 🌐 RESTful API 暴露在 http://localhost%s\n", appName, httpAddr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("[%s] ⚠️ RESTful API 服务启动失败: %v\n", appName, err)
 		}
 	}()
 
@@ -140,12 +163,12 @@ func main() {
 	// 5. 启动服务循环
 
 	// 创建 TCP 监听器
-	listener, err := net.Listen("tcp", grpcPort)
+	listener, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
-		fmt.Printf("[%s] ❌ 无法监听端口 %s: %v\n", appName, grpcPort, err)
+		fmt.Printf("[%s] ❌ 无法监听端口 %s: %v\n", appName, grpcAddr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("[%s] 🔌 TCP 监听器已创建：%s\n", appName, grpcPort)
+	fmt.Printf("[%s] 🔌 TCP 监听器已创建：%s\n", appName, grpcAddr)
 
 	// 创建 gRPC Server
 	//
@@ -185,7 +208,7 @@ func main() {
 	// 我们在独立的 goroutine 中运行，以便主 goroutine 可以监听关闭信号。
 
 	go func() {
-		fmt.Printf("[%s] 🚀 gRPC 服务器已启动，监听 %s\n", appName, grpcPort)
+		fmt.Printf("[%s] 🚀 gRPC 服务器已启动，监听 %s\n", appName, grpcAddr)
 		if err := grpcServer.Serve(listener); err != nil {
 			fmt.Printf("[%s] ❌ gRPC 服务器错误: %v\n", appName, err)
 		}
@@ -203,9 +226,10 @@ func main() {
 
 	fmt.Println()
 	fmt.Printf("[%s] ✅ 服务已完全启动！\n", appName)
-	fmt.Printf("[%s] 📡 gRPC 端口: %s\n", appName, grpcPort)
-	fmt.Printf("[%s] 📊 Prometheus 端口: %s\n", appName, metricsPort)
-	fmt.Printf("[%s] 💡 使用 grpcurl 测试: grpcurl -plaintext localhost%s list\n", appName, grpcPort)
+	fmt.Printf("[%s] 📡 gRPC 端口: %s\n", appName, grpcAddr)
+	fmt.Printf("[%s] 🌐 RESTful API 端口: %s\n", appName, httpAddr)
+	fmt.Printf("[%s] 📊 Prometheus 端口: %s\n", appName, metricsAddr)
+	fmt.Printf("[%s] 💡 使用 grpcurl 测试: grpcurl -plaintext localhost%s list\n", appName, grpcAddr)
 	fmt.Println()
 
 	// 等待关闭信号
@@ -226,6 +250,13 @@ func main() {
 	fmt.Printf("[%s] ✅ 匹配引擎已关闭\n", appName)
 
 	fmt.Printf("[%s] 👋 服务已完全关闭，再见！\n", appName)
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // printBanner 打印应用启动 Banner
