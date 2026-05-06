@@ -153,3 +153,73 @@ func TestMatchServicePersistsTimeoutToMySQL(t *testing.T) {
 		t.Fatalf("expected mysql timeout status, got %#v", saved)
 	}
 }
+
+func TestMatchServiceContinuesWhenMySQLWriteFails(t *testing.T) {
+	matchService, redisCleanup := newTestMatchService(t)
+	defer redisCleanup()
+
+	mysqlRepo, mysqlCleanup := newTestMySQLForService(t)
+	defer mysqlCleanup()
+	matchService.SetMySQLRepository(mysqlRepo)
+	if err := mysqlRepo.Close(); err != nil {
+		t.Fatalf("close mysql repo: %v", err)
+	}
+
+	first, err := matchService.CreateTicket(context.Background(), CreateMatchTicketRequest{
+		PlayerID: "mysql-down-match-1",
+		MMRScore: 1500,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create first ticket should continue with redis when mysql write fails: %v", err)
+	}
+	if first.Status != repository.MatchStatusQueued {
+		t.Fatalf("expected first redis ticket to remain usable, got %#v", first)
+	}
+
+	second, err := matchService.CreateTicket(context.Background(), CreateMatchTicketRequest{
+		PlayerID: "mysql-down-match-2",
+		MMRScore: 1510,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create second ticket should still complete match when mysql writes fail: %v", err)
+	}
+	if second.Status != repository.MatchStatusMatched || second.MatchID == "" {
+		t.Fatalf("expected redis match result to remain usable, got %#v", second)
+	}
+}
+
+func TestRankServiceContinuesWhenMySQLWriteFails(t *testing.T) {
+	matchService, redisCleanup := newTestMatchService(t)
+	defer redisCleanup()
+
+	mysqlRepo, mysqlCleanup := newTestMySQLForService(t)
+	defer mysqlCleanup()
+	rankService := NewRankService(matchService.playerRepo)
+	rankService.SetMySQLRepository(mysqlRepo)
+	if err := mysqlRepo.Close(); err != nil {
+		t.Fatalf("close mysql repo: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := rankService.UpdatePlayerScore(ctx, "mysql-down-rank", 1888); err != nil {
+		t.Fatalf("update score should continue with redis when mysql write fails: %v", err)
+	}
+
+	player, err := rankService.GetPlayerRank(ctx, "mysql-down-rank")
+	if err != nil {
+		t.Fatalf("get player rank from redis: %v", err)
+	}
+	if player == nil || player.Score != 1888 {
+		t.Fatalf("expected redis rank result to remain usable, got %#v", player)
+	}
+
+	players, err := rankService.GetTopPlayers(ctx, 10)
+	if err != nil {
+		t.Fatalf("get top players should continue with redis when mysql snapshot fails: %v", err)
+	}
+	if len(players) == 0 || players[0].PlayerID != "mysql-down-rank" {
+		t.Fatalf("expected redis top players to remain usable, got %#v", players)
+	}
+}

@@ -16,7 +16,7 @@
 - Prometheus
 - Grafana
 
-当前项目已接入可选 MySQL 持久化。未设置 DSN 时，MySQL 集成测试会跳过；设置 `CORERANK_TEST_MYSQL_DSN` 后会验证真实读写。
+当前项目已接入可选 MySQL 持久化。未设置 DSN 时，MySQL 集成测试会跳过；设置 `CORERANK_TEST_MYSQL_DSN` 后会验证真实读写。运行服务端时，MySQL 默认是可选持久化层：连接失败或运行期写入失败会记录 warning，并继续使用 Redis 主链路；如需强制要求 MySQL 可用，可设置 `CORERANK_MYSQL_REQUIRED=true`。
 
 ## 2. 本地基础验证
 
@@ -65,6 +65,7 @@ go test ./...
 - 匹配结果落库和查询。
 - 榜单快照写入。
 - Service 层匹配生命周期写入 MySQL。
+- MySQL 写入失败时，Service 层继续返回 Redis 主链路结果。
 
 ## 3. 启动依赖
 
@@ -256,12 +257,13 @@ RESTful 和 gRPC 最小闭环已覆盖：
 - 匹配票据超时状态同步测试。
 - 榜单快照写入。
 - Service 层匹配生命周期落库。
+- Service 层 MySQL 写入失败时降级到 Redis 主链路。
 
 仍需补：
 
 - 更完整的索引解释文档。
 - 事务失败回滚测试。
-- MySQL 故障时的降级策略测试。
+- 服务端启动时 `CORERANK_MYSQL_REQUIRED=true` 强依赖模式的自动化回归测试。
 
 ### 压测阶段
 

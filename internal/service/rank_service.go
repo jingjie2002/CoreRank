@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -39,7 +40,9 @@ func (s *RankService) UpdatePlayerScore(ctx context.Context, playerID string, sc
 		return err
 	}
 	if s.mysqlRepo != nil {
-		return s.mysqlRepo.UpsertPlayerScore(ctx, playerID, score)
+		if err := s.mysqlRepo.UpsertPlayerScore(ctx, playerID, score); err != nil {
+			log.Printf("[CoreRank] MySQL player score persist failed; continuing with Redis hot path: %v", err)
+		}
 	}
 	return nil
 }
@@ -76,7 +79,7 @@ func (s *RankService) GetTopPlayers(ctx context.Context, topN int64) ([]PlayerIn
 			})
 		}
 		if err := s.mysqlRepo.SaveRankSnapshot(ctx, rows); err != nil {
-			return nil, err
+			log.Printf("[CoreRank] MySQL rank snapshot persist failed; returning Redis rank result: %v", err)
 		}
 	}
 

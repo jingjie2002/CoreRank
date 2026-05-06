@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"CoreRank/internal/repository"
@@ -78,7 +79,7 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchTicket(ctx, ticket); err != nil {
-			return nil, err
+			log.Printf("[CoreRank] MySQL match ticket persist failed; continuing with Redis hot path: %v", err)
 		}
 	}
 
@@ -93,7 +94,7 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchTicket(ctx, *latest); err != nil {
-			return nil, err
+			log.Printf("[CoreRank] MySQL match ticket refresh persist failed; returning Redis ticket result: %v", err)
 		}
 	}
 	return latest, nil
@@ -116,7 +117,7 @@ func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repo
 	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
-			return nil, err
+			log.Printf("[CoreRank] MySQL match ticket cancellation persist failed; returning Redis ticket result: %v", err)
 		}
 	}
 	return ticket, nil
@@ -133,7 +134,7 @@ func (s *MatchService) TimeoutExpiredTickets(ctx context.Context, now time.Time,
 	if s.mysqlRepo != nil {
 		for _, ticket := range tickets {
 			if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
-				return nil, err
+				log.Printf("[CoreRank] MySQL match ticket timeout persist failed; returning Redis timeout result: %v", err)
 			}
 		}
 	}
@@ -187,11 +188,11 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchResult(ctx, *completed); err != nil {
-			return nil, err
+			log.Printf("[CoreRank] MySQL match result persist failed; returning Redis match result: %v", err)
 		}
 		for _, ticket := range tickets {
 			if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
-				return nil, err
+				log.Printf("[CoreRank] MySQL matched ticket persist failed; returning Redis match result: %v", err)
 			}
 		}
 	}

@@ -28,8 +28,10 @@ Go 游戏匹配与排行榜中台
 - 匹配票据超时扫描：到期 queued 票据会推进为 `timeout`
 - 房间分配抽象：默认生成逻辑 `room_id`，可替换为真实房间服分配实现
 - MySQL 可选持久化：玩家分数、匹配票据、匹配结果、榜单快照
+- MySQL 故障降级：默认保持 Redis 主链路可用，持久化失败时记录 warning
 - 积分桶扫描与滑动窗口匹配 Worker
 - Prometheus `/metrics` 指标端点
+- RESTful API 与 Prometheus metrics server 支持退出信号下优雅关闭
 - gRPC Robot 压测程序
 - RESTful 演示脚本
 - Redis 关键路径测试
@@ -55,6 +57,7 @@ graph TB
     CoreRank --> MatchWorker["Match Worker"]
     RankService --> Redis[("Redis ZSet")]
     MatchWorker --> Redis
+    CoreRank --> MySQL[("MySQL 可选持久化")]
     CoreRank --> Metrics["Prometheus /metrics"]
 ```
 
@@ -101,6 +104,14 @@ go run ./cmd/server
 ```powershell
 $env:CORERANK_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
 go run ./cmd/server
+```
+
+默认情况下，MySQL 是可选持久化层。即使 DSN 连接失败，或服务运行中 MySQL 写入失败，CoreRank 也会继续使用 Redis 主链路处理排行榜和匹配请求，并在日志中记录 warning。
+
+如需在测试或演示中强制要求 MySQL 可用：
+
+```powershell
+$env:CORERANK_MYSQL_REQUIRED="true"
 ```
 
 默认端口：
@@ -186,7 +197,9 @@ python scripts\rest_demo.py
 - 匹配票据支持超时扫描，超时玩家可重新入队。
 - 匹配成功通过可替换的房间分配抽象生成逻辑 `room_id`。
 - MySQL 可选持久化玩家分数、匹配票据、匹配结果和榜单快照。
+- MySQL 故障时默认降级到 Redis 主链路，避免可选持久化层中断核心请求。
 - Prometheus 指标暴露。
+- RESTful API 和 Prometheus metrics server 支持优雅关闭。
 - Robot 压测脚本和 RESTful 演示脚本。
 - 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
 
@@ -204,8 +217,8 @@ python scripts\rest_demo.py
 
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
 2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；真实房间服分配待补。
-3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；后续继续补更细的业务查询和故障策略。
-4. 可观测性与公开文档：真实匹配指标、API 文档、架构文档、压测报告。
+3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；基础故障降级已完成，后续继续补更细的业务查询和索引说明。
+4. 可观测性与公开文档：HTTP/metrics 优雅关闭已补；真实匹配指标、API 文档、架构文档、压测报告仍待补。
 
 ## 文档
 

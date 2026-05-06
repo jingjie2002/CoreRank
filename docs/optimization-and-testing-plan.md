@@ -155,6 +155,7 @@ match:result:{match_id}        短期匹配结果
 当前执行状态：
 
 - 已接入可选 MySQL 持久化，设置 `CORERANK_MYSQL_DSN` 后启用。
+- 基础故障降级已完成：MySQL 连接失败或写入失败时默认继续 Redis 主链路；`CORERANK_MYSQL_REQUIRED=true` 可切换为强依赖模式。
 - 已有表结构：`players`、`match_tickets`、`match_results`、`rank_snapshots`。
 - 已有 MySQL repository 集成测试。
 - GitHub Actions 已加入 MySQL 服务。
@@ -186,6 +187,7 @@ rank_snapshots
 - 有初始化 SQL 或迁移脚本。已完成 `internal/repository/mysql_schema.sql`。
 - 匹配票据、超时状态和匹配结果能写入 MySQL。已完成基础覆盖。
 - 有 MySQL repository 测试或集成测试。已完成。
+- MySQL 写入失败不影响 Redis 主链路返回。已完成基础覆盖。
 - 文档写清关键索引设计。仍需补充更完整说明。
 
 ### 阶段 3：可观测性、压测与公开文档
@@ -194,6 +196,7 @@ rank_snapshots
 
 要做：
 
+- HTTP/metrics server 优雅关闭。已补基础实现。
 - 接入真实匹配指标：
   - 匹配成功数。
   - 取消数。
@@ -356,6 +359,7 @@ go test ./... -tags=integration
 
 新增：
 
+- HTTP/metrics server 收到退出信号后的优雅关闭验证。
 - `/metrics` 可访问测试。
 - Robot 压测结果记录。
 - 压测后排行榜数据正确性检查。

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,6 +53,9 @@ const (
 
 	// 启动超时时间
 	startupTimeout = 10 * time.Second
+
+	// 关闭超时时间
+	shutdownTimeout = 5 * time.Second
 )
 
 func main() {
@@ -109,19 +113,24 @@ func main() {
 	matchService := service.NewMatchService(playerRepo)
 	fmt.Printf("[%s] ✅ MatchService 初始化完成\n", appName)
 
+	mysqlRequired := envBool("CORERANK_MYSQL_REQUIRED")
 	if mysqlDSN := os.Getenv("CORERANK_MYSQL_DSN"); mysqlDSN != "" {
 		mysqlRepo, err := repository.NewMySQLRepository(ctx, mysqlDSN)
 		if err != nil {
-			fmt.Printf("[%s] ❌ MySQL 连接失败: %v\n", appName, err)
-			os.Exit(1)
+			if mysqlRequired {
+				fmt.Printf("[%s] ❌ MySQL 连接失败，且 CORERANK_MYSQL_REQUIRED 已启用: %v\n", appName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("[%s] ⚠️ MySQL 连接失败，已降级为 Redis-only 模式: %v\n", appName, err)
+		} else {
+			defer func() {
+				fmt.Printf("[%s] 正在关闭 MySQL 连接...\n", appName)
+				_ = mysqlRepo.Close()
+			}()
+			rankService.SetMySQLRepository(mysqlRepo)
+			matchService.SetMySQLRepository(mysqlRepo)
+			fmt.Printf("[%s] ✅ MySQL 持久化层已启用\n", appName)
 		}
-		defer func() {
-			fmt.Printf("[%s] 正在关闭 MySQL 连接...\n", appName)
-			_ = mysqlRepo.Close()
-		}()
-		rankService.SetMySQLRepository(mysqlRepo)
-		matchService.SetMySQLRepository(mysqlRepo)
-		fmt.Printf("[%s] ✅ MySQL 持久化层已启用\n", appName)
 	} else {
 		fmt.Printf("[%s] ℹ️ MySQL 持久化层未启用，设置 CORERANK_MYSQL_DSN 后启用\n", appName)
 	}
@@ -155,22 +164,30 @@ func main() {
 	// 2. 限流独立：避免监控抓取影响业务流量
 	// 3. 灵活部署：可独立配置负载均衡策略
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsServer := &http.Server{
+		Addr:              metricsAddr,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	go func() {
-		http.Handle("/metrics", promhttp.Handler())
 		fmt.Printf("[%s] 📊 Prometheus 指标暴露在 http://localhost%s/metrics\n", appName, metricsAddr)
-		if err := http.ListenAndServe(metricsAddr, nil); err != nil {
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[%s] ⚠️ Prometheus HTTP 服务启动失败: %v\n", appName, err)
 		}
 	}()
 
+	httpServer := &http.Server{
+		Addr:              httpAddr,
+		Handler:           httpHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	go func() {
-		server := &http.Server{
-			Addr:              httpAddr,
-			Handler:           httpHandler,
-			ReadHeaderTimeout: 5 * time.Second,
-		}
 		fmt.Printf("[%s] 🌐 RESTful API 暴露在 http://localhost%s\n", appName, httpAddr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[%s] ⚠️ RESTful API 服务启动失败: %v\n", appName, err)
 		}
 	}()
@@ -267,6 +284,21 @@ func main() {
 	fmt.Println()
 	fmt.Printf("[%s] 收到信号 %v，正在优雅关闭...\n", appName, sig)
 
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		fmt.Printf("[%s] ⚠️ RESTful API 关闭异常: %v\n", appName, err)
+	} else {
+		fmt.Printf("[%s] ✅ RESTful API 已关闭\n", appName)
+	}
+
+	if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+		fmt.Printf("[%s] ⚠️ Prometheus HTTP 服务关闭异常: %v\n", appName, err)
+	} else {
+		fmt.Printf("[%s] ✅ Prometheus HTTP 服务已关闭\n", appName)
+	}
+
 	// 优雅停止 gRPC 服务器
 	// GracefulStop 会等待所有正在处理的 RPC 完成后再关闭
 	grpcServer.GracefulStop()
@@ -284,6 +316,11 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(name string) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 // printBanner 打印应用启动 Banner
