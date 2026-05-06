@@ -25,6 +25,7 @@ Go 游戏匹配与排行榜中台
 - Redis Lua 候选玩家原子摘取
 - RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
 - Redis 短期保存 `MatchTicket` 与 `MatchResult`
+- MySQL 可选持久化：玩家分数、匹配票据、匹配结果、榜单快照
 - 积分桶扫描与滑动窗口匹配 Worker
 - Prometheus `/metrics` 指标端点
 - gRPC Robot 压测程序
@@ -34,7 +35,6 @@ Go 游戏匹配与排行榜中台
 
 ## 当前未实现
 
-- MySQL 持久化
 - 匹配票据超时扫描
 - 匹配结果通知
 - 房间服或战斗服分配
@@ -67,6 +67,7 @@ graph TB
 | `internal/handler` | gRPC 与 RESTful handler |
 | `internal/service` | 排行榜服务与匹配 Worker |
 | `internal/repository` | Redis 仓库层与 Lua 脚本 |
+| `internal/repository/mysql_schema.sql` | MySQL 表结构 |
 | `internal/metrics` | Prometheus 指标定义 |
 | `pkg/redis` | Redis 客户端封装 |
 | `scripts` | RESTful 演示脚本 |
@@ -94,6 +95,13 @@ docker compose up -d
 go run ./cmd/server
 ```
 
+如需启用 MySQL 持久化：
+
+```powershell
+$env:CORERANK_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
+go run ./cmd/server
+```
+
 默认端口：
 
 | 服务 | 默认地址 |
@@ -115,6 +123,13 @@ go run ./cmd/server
 
 ```powershell
 python scripts\rest_demo.py
+```
+
+MySQL 集成测试需要显式提供测试 DSN：
+
+```powershell
+$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
+go test ./...
 ```
 
 演示覆盖：
@@ -167,6 +182,7 @@ python scripts\rest_demo.py
 - Redis Lua 将候选玩家查询与删除合并为原子操作。
 - Redis Hash 保存短期匹配票据和匹配结果。
 - RESTful 和 gRPC API 支持创建/取消匹配票据、查询票据和查询匹配结果。
+- MySQL 可选持久化玩家分数、匹配票据、匹配结果和榜单快照。
 - Prometheus 指标暴露。
 - Robot 压测脚本和 RESTful 演示脚本。
 - 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
@@ -177,7 +193,6 @@ python scripts\rest_demo.py
 - 已支持 Redis Cluster。
 - 完整游戏服务器。
 - 完整房间/战斗服调度。
-- MySQL 持久化。
 - P99 延迟数据。
 
 ## 后续优化路线
@@ -186,7 +201,7 @@ python scripts\rest_demo.py
 
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
 2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、查询和 `MatchResult` 查询已完成；超时扫描和真实房间服分配待补。
-3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照。
+3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；后续继续补超时扫描和更细的业务查询。
 4. 可观测性与公开文档：真实匹配指标、API 文档、架构文档、压测报告。
 
 ## 文档

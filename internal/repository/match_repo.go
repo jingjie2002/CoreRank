@@ -121,7 +121,7 @@ func (r *PlayerRepository) GetPlayerTicketID(ctx context.Context, playerID strin
 	return ticketID, nil
 }
 
-func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string, result MatchResult) (*MatchResult, error) {
+func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string, result MatchResult) (*MatchResult, []*MatchTicket, error) {
 	tickets := make([]*MatchTicket, 0, len(playerIDs))
 	for _, playerID := range playerIDs {
 		ticketID, err := r.GetPlayerTicketID(ctx, playerID)
@@ -129,14 +129,14 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 			if err == redis.Nil {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		ticket, err := r.GetMatchTicket(ctx, ticketID)
 		if err != nil {
 			if err == ErrTicketNotFound {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if ticket.Status == MatchStatusQueued {
 			tickets = append(tickets, ticket)
@@ -144,18 +144,22 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 	}
 
 	if len(tickets) < 2 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	matchedPlayerIDs := make([]string, 0, len(tickets))
 	pipe := r.client.TxPipeline()
 	for _, ticket := range tickets {
+		ticket.Status = MatchStatusMatched
+		ticket.MatchID = result.MatchID
+		ticket.RoomID = result.RoomID
+		ticket.UpdatedAt = result.CreatedAt
 		matchedPlayerIDs = append(matchedPlayerIDs, ticket.PlayerID)
 		pipe.HSet(ctx, matchTicketKey(ticket.TicketID), map[string]any{
-			"status":     MatchStatusMatched,
-			"match_id":   result.MatchID,
-			"room_id":    result.RoomID,
-			"updated_at": result.CreatedAt,
+			"status":     ticket.Status,
+			"match_id":   ticket.MatchID,
+			"room_id":    ticket.RoomID,
+			"updated_at": ticket.UpdatedAt,
 		})
 		pipe.Del(ctx, playerTicketKey(ticket.PlayerID))
 	}
@@ -163,7 +167,7 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 	result.PlayerIDs = matchedPlayerIDs
 	playersJSON, err := json.Marshal(result.PlayerIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pipe.HSet(ctx, matchResultKey(result.MatchID), map[string]any{
 		"match_id":   result.MatchID,
@@ -176,10 +180,10 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 	pipe.Expire(ctx, matchResultKey(result.MatchID), defaultResultTTL)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &result, nil
+	return &result, tickets, nil
 }
 
 func (r *PlayerRepository) GetMatchResult(ctx context.Context, matchID string) (*MatchResult, error) {

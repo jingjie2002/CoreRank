@@ -17,7 +17,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 持久化玩家、匹配票据和对局结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
-注意：这段完整表述必须等 MySQL、匹配生命周期、CI 都真实实现并验证后才能写进简历。当前阶段只能写已经存在的 Go、gRPC、RESTful、Redis ZSet、Lua、Prometheus、Robot 压测。
+注意：这段完整表述中的 MySQL、匹配生命周期和 CI 已有可验证基线；超时扫描、真实房间服分配、P95/P99 和生产高可用仍不能写成已完成。
 
 ## 2. 中台到底跑在哪里
 
@@ -151,6 +151,13 @@ match:result:{match_id}        短期匹配结果
 
 目标：补齐 JD 中的 MySQL，并让 Redis 热数据和 MySQL 持久化分工清楚。
 
+当前执行状态：
+
+- 已接入可选 MySQL 持久化，设置 `CORERANK_MYSQL_DSN` 后启用。
+- 已有表结构：`players`、`match_tickets`、`match_results`、`rank_snapshots`。
+- 已有 MySQL repository 集成测试。
+- GitHub Actions 已加入 MySQL 服务。
+
 建议表：
 
 ```text
@@ -174,11 +181,11 @@ rank_snapshots
 
 验收标准：
 
-- Docker Compose 能拉起 Redis + MySQL。
-- 有初始化 SQL 或迁移脚本。
-- 匹配票据和匹配结果能写入 MySQL。
-- 有 MySQL repository 测试或集成测试。
-- 文档写清关键索引设计。
+- Docker Compose 能拉起 Redis + MySQL。当前 Docker 本机未验证，GitHub Actions 已使用 MySQL service 验证。
+- 有初始化 SQL 或迁移脚本。已完成 `internal/repository/mysql_schema.sql`。
+- 匹配票据和匹配结果能写入 MySQL。已完成。
+- 有 MySQL repository 测试或集成测试。已完成。
+- 文档写清关键索引设计。仍需补充更完整说明。
 
 ### 阶段 3：可观测性、压测与公开文档
 
@@ -235,12 +242,13 @@ Service 单元测试
 
 ## 5. 当前项目现阶段怎么测
 
-当前 CoreRank 还没有 MySQL 和完整匹配生命周期，所以现阶段测试范围应该诚实限定在：
+当前 CoreRank 已有 MySQL 可选持久化和 RESTful/gRPC 匹配生命周期最小闭环，所以现阶段测试范围应该诚实限定在：
 
 - Go 编译与静态检查。
 - Redis ZSet / Lua 测试。
 - RESTful 基础接口。
 - gRPC `UpdateScore` 压测。
+- MySQL repository 集成测试。
 - Prometheus 端点可访问性。
 
 推荐当前本机测试命令：

@@ -27,10 +27,15 @@ type CreateMatchTicketRequest struct {
 
 type MatchService struct {
 	playerRepo *repository.PlayerRepository
+	mysqlRepo  *repository.MySQLRepository
 }
 
 func NewMatchService(playerRepo *repository.PlayerRepository) *MatchService {
 	return &MatchService{playerRepo: playerRepo}
+}
+
+func (s *MatchService) SetMySQLRepository(mysqlRepo *repository.MySQLRepository) {
+	s.mysqlRepo = mysqlRepo
 }
 
 func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRequest) (*repository.MatchTicket, error) {
@@ -59,13 +64,27 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 	if err := s.playerRepo.CreateMatchTicket(ctx, ticket, req.MaxWait+5*time.Minute); err != nil {
 		return nil, err
 	}
+	if s.mysqlRepo != nil {
+		if err := s.mysqlRepo.UpsertMatchTicket(ctx, ticket); err != nil {
+			return nil, err
+		}
+	}
 
 	_, err := s.TryCompleteMatch(ctx, req.MMRScore, req.MatchMode)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.playerRepo.GetMatchTicket(ctx, ticket.TicketID)
+	latest, err := s.playerRepo.GetMatchTicket(ctx, ticket.TicketID)
+	if err != nil {
+		return nil, err
+	}
+	if s.mysqlRepo != nil {
+		if err := s.mysqlRepo.UpsertMatchTicket(ctx, *latest); err != nil {
+			return nil, err
+		}
+	}
+	return latest, nil
 }
 
 func (s *MatchService) GetTicket(ctx context.Context, ticketID string) (*repository.MatchTicket, error) {
@@ -79,7 +98,16 @@ func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repo
 	if ticketID == "" {
 		return nil, repository.ErrTicketNotFound
 	}
-	return s.playerRepo.CancelMatchTicket(ctx, ticketID, time.Now().UnixMilli())
+	ticket, err := s.playerRepo.CancelMatchTicket(ctx, ticketID, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	if s.mysqlRepo != nil {
+		if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
+			return nil, err
+		}
+	}
+	return ticket, nil
 }
 
 func (s *MatchService) GetResult(ctx context.Context, matchID string) (*repository.MatchResult, error) {
@@ -118,7 +146,21 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 		Status:    repository.MatchStatusMatched,
 		CreatedAt: now,
 	}
-	return s.playerRepo.CompleteMatch(ctx, players, result)
+	completed, tickets, err := s.playerRepo.CompleteMatch(ctx, players, result)
+	if err != nil || completed == nil {
+		return completed, err
+	}
+	if s.mysqlRepo != nil {
+		if err := s.mysqlRepo.UpsertMatchResult(ctx, *completed); err != nil {
+			return nil, err
+		}
+		for _, ticket := range tickets {
+			if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return completed, nil
 }
 
 func newID(prefix string) string {

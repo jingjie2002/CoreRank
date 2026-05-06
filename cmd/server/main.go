@@ -109,6 +109,23 @@ func main() {
 	matchService := service.NewMatchService(playerRepo)
 	fmt.Printf("[%s] ✅ MatchService 初始化完成\n", appName)
 
+	if mysqlDSN := os.Getenv("CORERANK_MYSQL_DSN"); mysqlDSN != "" {
+		mysqlRepo, err := repository.NewMySQLRepository(ctx, mysqlDSN)
+		if err != nil {
+			fmt.Printf("[%s] ❌ MySQL 连接失败: %v\n", appName, err)
+			os.Exit(1)
+		}
+		defer func() {
+			fmt.Printf("[%s] 正在关闭 MySQL 连接...\n", appName)
+			_ = mysqlRepo.Close()
+		}()
+		rankService.SetMySQLRepository(mysqlRepo)
+		matchService.SetMySQLRepository(mysqlRepo)
+		fmt.Printf("[%s] ✅ MySQL 持久化层已启用\n", appName)
+	} else {
+		fmt.Printf("[%s] ℹ️ MySQL 持久化层未启用，设置 CORERANK_MYSQL_DSN 后启用\n", appName)
+	}
+
 	// Handler 层（gRPC 处理器）
 	rankHandler := handler.NewRankHandler(rankService)
 	fmt.Printf("[%s] ✅ RankHandler 初始化完成\n", appName)

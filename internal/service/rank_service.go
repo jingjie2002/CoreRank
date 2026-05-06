@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -18,6 +19,7 @@ type PlayerInfo struct {
 // RankService 排行榜服务
 type RankService struct {
 	playerRepo *repository.PlayerRepository
+	mysqlRepo  *repository.MySQLRepository
 }
 
 // NewRankService 创建 RankService 实例
@@ -27,9 +29,19 @@ func NewRankService(playerRepo *repository.PlayerRepository) *RankService {
 	}
 }
 
+func (s *RankService) SetMySQLRepository(mysqlRepo *repository.MySQLRepository) {
+	s.mysqlRepo = mysqlRepo
+}
+
 // UpdatePlayerScore 更新玩家分数到排行榜
 func (s *RankService) UpdatePlayerScore(ctx context.Context, playerID string, score float64) error {
-	return s.playerRepo.UpdatePlayerScore(ctx, playerID, score)
+	if err := s.playerRepo.UpdatePlayerScore(ctx, playerID, score); err != nil {
+		return err
+	}
+	if s.mysqlRepo != nil {
+		return s.mysqlRepo.UpsertPlayerScore(ctx, playerID, score)
+	}
+	return nil
 }
 
 // GetTopPlayers 获取排行榜前 N 名玩家
@@ -50,6 +62,22 @@ func (s *RankService) GetTopPlayers(ctx context.Context, topN int64) ([]PlayerIn
 			Score:    z.Score,
 			Rank:     int64(i + 1),
 		})
+	}
+
+	if s.mysqlRepo != nil {
+		now := time.Now().UnixMilli()
+		rows := make([]repository.RankSnapshotRow, 0, len(players))
+		for _, player := range players {
+			rows = append(rows, repository.RankSnapshotRow{
+				PlayerID:     player.PlayerID,
+				RankScore:    int64(player.Score),
+				RankPosition: player.Rank,
+				CapturedAtMS: now,
+			})
+		}
+		if err := s.mysqlRepo.SaveRankSnapshot(ctx, rows); err != nil {
+			return nil, err
+		}
 	}
 
 	return players, nil

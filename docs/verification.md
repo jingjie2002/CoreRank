@@ -16,7 +16,7 @@
 - Prometheus
 - Grafana
 
-当前项目尚未接入 MySQL。MySQL 相关测试应等持久化模块实现后再补充。
+当前项目已接入可选 MySQL 持久化。未设置 DSN 时，MySQL 集成测试会跳过；设置 `CORERANK_TEST_MYSQL_DSN` 后会验证真实读写。
 
 ## 2. 本地基础验证
 
@@ -48,6 +48,22 @@ internal/repository/player_repo_test.go
 - 个人名次查询。
 
 如果 Redis 不可用，测试会跳过 Redis 集成测试。正式验收时不应依赖跳过结果。
+
+MySQL 集成测试：
+
+```powershell
+$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
+go test ./...
+```
+
+测试覆盖：
+
+- 初始化 MySQL 表结构。
+- 玩家分数落库和查询。
+- 匹配票据落库和查询。
+- 匹配结果落库和查询。
+- 榜单快照写入。
+- Service 层匹配生命周期写入 MySQL。
 
 ## 3. 启动依赖
 
@@ -201,12 +217,13 @@ http://localhost:9091/metrics
 CI 目标：
 
 - 启动 Redis 服务。
+- 启动 MySQL 服务。
 - 执行 `go test ./...`。
 - 执行 `go vet ./...`。
 - 构建 `cmd/server`。
 - 构建 `cmd/robot`。
 
-CI 只能证明基础构建和测试通过，不代表生产环境可用。
+CI 会使用临时 MySQL 容器验证集成测试，但不代表生产环境可用。
 
 ## 9. 后续阶段测试要求
 
@@ -227,14 +244,20 @@ RESTful 和 gRPC 最小闭环已覆盖：
 
 ### MySQL 阶段
 
-必须补：
+已覆盖：
 
 - 初始化 SQL 或迁移脚本验证。
 - 玩家表读写测试。
 - 匹配票据落库测试。
 - 匹配结果落库测试。
-- 唯一约束和索引验证。
+- 榜单快照写入。
+- Service 层匹配生命周期落库。
+
+仍需补：
+
+- 更完整的索引解释文档。
 - 事务失败回滚测试。
+- MySQL 故障时的降级策略测试。
 
 ### 压测阶段
 
