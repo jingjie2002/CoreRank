@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"time"
 
 	"CoreRank/internal/repository"
 )
+
+const mysqlTestLockName = "corerank_mysql_tests"
 
 func newTestMySQLForService(t *testing.T) (*repository.MySQLRepository, func()) {
 	t.Helper()
@@ -16,24 +19,61 @@ func newTestMySQLForService(t *testing.T) (*repository.MySQLRepository, func()) 
 	if dsn == "" {
 		t.Skip("CORERANK_TEST_MYSQL_DSN is not set")
 	}
+	lockCleanup := acquireMySQLTestLock(t, dsn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	mysqlRepo, err := repository.NewMySQLRepository(ctx, dsn)
 	if err != nil {
+		lockCleanup()
 		t.Fatalf("connect mysql: %v", err)
 	}
 	if err := mysqlRepo.ResetTestData(ctx); err != nil {
 		_ = mysqlRepo.Close()
+		lockCleanup()
 		t.Fatalf("reset mysql test data: %v", err)
 	}
 
 	cleanup := func() {
 		_ = mysqlRepo.ResetTestData(context.Background())
 		_ = mysqlRepo.Close()
+		lockCleanup()
 	}
 	return mysqlRepo, cleanup
+}
+
+func acquireMySQLTestLock(t *testing.T, dsn string) func() {
+	t.Helper()
+
+	lockDB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("open mysql lock connection: %v", err)
+	}
+	lockDB.SetMaxOpenConns(1)
+	lockDB.SetMaxIdleConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var acquired int
+	if err := lockDB.QueryRowContext(ctx, "SELECT GET_LOCK(?, 25)", mysqlTestLockName).Scan(&acquired); err != nil {
+		_ = lockDB.Close()
+		t.Fatalf("acquire mysql test lock: %v", err)
+	}
+	if acquired != 1 {
+		_ = lockDB.Close()
+		t.Fatalf("timed out acquiring mysql test lock")
+	}
+
+	return func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer releaseCancel()
+
+		var released sql.NullInt64
+		_ = lockDB.QueryRowContext(releaseCtx, "SELECT RELEASE_LOCK(?)", mysqlTestLockName).Scan(&released)
+		_ = lockDB.Close()
+	}
 }
 
 func TestMatchServicePersistsLifecycleToMySQL(t *testing.T) {

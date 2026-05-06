@@ -33,10 +33,11 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -ucorerank -pcorerank"
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pcorerank_root --silent"
+          --health-start-period 30s
           --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
+          --health-timeout 5s
+          --health-retries 30
 
     steps:
       - name: Checkout
@@ -54,7 +55,7 @@ jobs:
       - name: Run tests
         env:
           CORERANK_TEST_REDIS_ADDR: 127.0.0.1:6379
-          CORERANK_TEST_MYSQL_DSN: corerank:corerank@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local
+          CORERANK_TEST_MYSQL_DSN: "corerank:corerank@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
         run: go test ./...
 
       - name: Run go vet

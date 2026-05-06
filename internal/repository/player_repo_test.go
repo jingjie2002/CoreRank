@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"CoreRank/internal/testutil"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -26,16 +28,39 @@ func newTestRepository(t *testing.T) (*PlayerRepository, func()) {
 		t.Skipf("redis is unavailable at %s: %v", addr, err)
 	}
 
+	releaseLock := acquireRedisTestLock(t, client)
 	if err := cleanRedisTestKeys(ctx, client); err != nil {
+		releaseLock()
+		_ = client.Close()
 		t.Fatalf("clean redis keys: %v", err)
 	}
 
 	repo := NewPlayerRepository(client)
 	cleanup := func() {
 		_ = cleanRedisTestKeys(context.Background(), client)
+		releaseLock()
 		_ = client.Close()
 	}
 	return repo, cleanup
+}
+
+func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	release, err := testutil.AcquireRedisTestLock(ctx, client)
+	if err != nil {
+		_ = client.Close()
+		t.Fatalf("acquire redis test lock: %v", err)
+	}
+
+	return func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer releaseCancel()
+		_ = release(releaseCtx)
+	}
 }
 
 func cleanRedisTestKeys(ctx context.Context, client *redis.Client) error {

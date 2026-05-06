@@ -48,7 +48,7 @@ func NewMySQLRepository(ctx context.Context, dsn string) (*MySQLRepository, erro
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	if err := db.PingContext(ctx); err != nil {
+	if err := pingMySQLWithRetry(ctx, db, 15*time.Second); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -59,6 +59,34 @@ func NewMySQLRepository(ctx context.Context, dsn string) (*MySQLRepository, erro
 		return nil, err
 	}
 	return repo, nil
+}
+
+func pingMySQLWithRetry(ctx context.Context, db *sql.DB, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+
+	for {
+		if err := db.PingContext(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			return lastErr
+		}
+
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				return lastErr
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (r *MySQLRepository) Close() error {

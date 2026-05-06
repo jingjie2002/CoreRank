@@ -11,6 +11,7 @@ import (
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/repository"
 	"CoreRank/internal/service"
+	"CoreRank/internal/testutil"
 
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -35,7 +36,10 @@ func newTestMatchClient(t *testing.T) (pb.MatchServiceClient, func()) {
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		t.Skipf("redis is unavailable at %s: %v", addr, err)
 	}
+	releaseLock := acquireRedisTestLock(t, redisClient)
 	if err := cleanMatchHandlerTestKeys(ctx, redisClient); err != nil {
+		releaseLock()
+		_ = redisClient.Close()
 		t.Fatalf("clean redis keys: %v", err)
 	}
 
@@ -67,10 +71,30 @@ func newTestMatchClient(t *testing.T) (pb.MatchServiceClient, func()) {
 		grpcServer.Stop()
 		_ = listener.Close()
 		_ = cleanMatchHandlerTestKeys(context.Background(), redisClient)
+		releaseLock()
 		_ = redisClient.Close()
 	}
 
 	return pb.NewMatchServiceClient(conn), cleanup
+}
+
+func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	release, err := testutil.AcquireRedisTestLock(ctx, client)
+	if err != nil {
+		_ = client.Close()
+		t.Fatalf("acquire redis test lock: %v", err)
+	}
+
+	return func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer releaseCancel()
+		_ = release(releaseCtx)
+	}
 }
 
 func cleanMatchHandlerTestKeys(ctx context.Context, client *redis.Client) error {
