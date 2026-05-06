@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"CoreRank/internal/repository"
 	"CoreRank/internal/service"
@@ -13,7 +14,7 @@ import (
 
 // NewHTTPHandler exposes a small RESTful gateway on top of the same Redis-backed
 // rank and match repository used by the gRPC service.
-func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.PlayerRepository) http.Handler {
+func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.PlayerRepository, matchService *service.MatchService) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +98,61 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 		})
 	})
 
+	mux.HandleFunc("POST /api/match/tickets", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			PlayerID  string `json:"player_id"`
+			MMRScore  int64  `json:"mmr_score"`
+			MatchMode string `json:"match_mode"`
+			MaxWaitMS int64  `json:"max_wait_ms"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		ticket, err := matchService.CreateTicket(r.Context(), service.CreateMatchTicketRequest{
+			PlayerID:  req.PlayerID,
+			MMRScore:  req.MMRScore,
+			MatchMode: req.MatchMode,
+			MaxWait:   time.Duration(req.MaxWaitMS) * time.Millisecond,
+		})
+		if err != nil {
+			writeMatchError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, ticket)
+	})
+
+	mux.HandleFunc("GET /api/match/tickets/", func(w http.ResponseWriter, r *http.Request) {
+		ticketID := strings.TrimPrefix(r.URL.Path, "/api/match/tickets/")
+		ticket, err := matchService.GetTicket(r.Context(), ticketID)
+		if err != nil {
+			writeMatchError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, ticket)
+	})
+
+	mux.HandleFunc("DELETE /api/match/tickets/", func(w http.ResponseWriter, r *http.Request) {
+		ticketID := strings.TrimPrefix(r.URL.Path, "/api/match/tickets/")
+		ticket, err := matchService.CancelTicket(r.Context(), ticketID)
+		if err != nil {
+			writeMatchError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, ticket)
+	})
+
+	mux.HandleFunc("GET /api/match/results/", func(w http.ResponseWriter, r *http.Request) {
+		matchID := strings.TrimPrefix(r.URL.Path, "/api/match/results/")
+		result, err := matchService.GetResult(r.Context(), matchID)
+		if err != nil {
+			writeMatchError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("DELETE /api/match/pool/", func(w http.ResponseWriter, r *http.Request) {
 		playerID := strings.TrimPrefix(r.URL.Path, "/api/match/pool/")
 		if playerID == "" {
@@ -131,4 +187,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func writeMatchError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, repository.ErrPlayerAlreadyQueued):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, repository.ErrTicketNotFound), errors.Is(err, repository.ErrResultNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, repository.ErrTicketNotQueued):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, http.StatusBadRequest, err)
+	}
 }

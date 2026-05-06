@@ -67,6 +67,33 @@ def main():
         for method, path, payload in steps:
             print(f">>> {method} {path}")
             print(json.dumps(request(method, path, payload), ensure_ascii=False, indent=2))
+
+        print(">>> POST /api/match/tickets")
+        first_ticket = request("POST", "/api/match/tickets", {
+            "player_id": "p4",
+            "mmr_score": 1250,
+            "match_mode": "duel",
+            "max_wait_ms": 30000,
+        })
+        print(json.dumps(first_ticket, ensure_ascii=False, indent=2))
+
+        print(">>> POST /api/match/tickets")
+        second_ticket = request("POST", "/api/match/tickets", {
+            "player_id": "p5",
+            "mmr_score": 1260,
+            "match_mode": "duel",
+            "max_wait_ms": 30000,
+        })
+        print(json.dumps(second_ticket, ensure_ascii=False, indent=2))
+
+        print(f">>> GET /api/match/tickets/{first_ticket['TicketID']}")
+        refreshed_first = request("GET", f"/api/match/tickets/{first_ticket['TicketID']}")
+        print(json.dumps(refreshed_first, ensure_ascii=False, indent=2))
+
+        match_id = second_ticket.get("MatchID")
+        if match_id:
+            print(f">>> GET /api/match/results/{match_id}")
+            print(json.dumps(request("GET", f"/api/match/results/{match_id}"), ensure_ascii=False, indent=2))
     finally:
         proc.terminate()
         try:

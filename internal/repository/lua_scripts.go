@@ -24,6 +24,10 @@ if #members == 0 then
     return {}
 end
 
+if #members < limit then
+    return {}
+end
+
 -- 原子删除匹配的玩家
 for i, member in ipairs(members) do
     redis.call('ZREM', key, member)

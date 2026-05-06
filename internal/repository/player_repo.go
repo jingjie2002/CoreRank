@@ -10,6 +10,8 @@ import (
 const (
 	// MatchPoolKey 匹配池的 Redis Key
 	MatchPoolKey = "{match:pool}"
+	// MatchTicketPoolKey 匹配生命周期票据使用的 Redis Key
+	MatchTicketPoolKey = "{match:ticket_pool}"
 	// GlobalRankKey 全局排行榜的 Redis Key
 	GlobalRankKey = "{rank:global}"
 )
@@ -29,10 +31,14 @@ func NewPlayerRepository(client *redis.Client) *PlayerRepository {
 // AddPlayerToPool 将玩家添加到匹配池
 // 使用 CompositeScoreScript 计算复合分数，确保先入队的玩家优先匹配
 func (r *PlayerRepository) AddPlayerToPool(ctx context.Context, playerID string, score int64) error {
+	return r.addPlayerToPool(ctx, MatchPoolKey, playerID, score)
+}
+
+func (r *PlayerRepository) addPlayerToPool(ctx context.Context, key string, playerID string, score int64) error {
 	timestamp := time.Now().UnixMilli()
 
 	_, err := CompositeScoreScript.Run(ctx, r.client,
-		[]string{MatchPoolKey},
+		[]string{key},
 		playerID,
 		score,
 		timestamp,
@@ -44,12 +50,20 @@ func (r *PlayerRepository) AddPlayerToPool(ctx context.Context, playerID string,
 // SearchAndPickPlayers 原子化地从匹配池中查询、提取并删除玩家
 // 返回匹配到的玩家ID列表
 func (r *PlayerRepository) SearchAndPickPlayers(ctx context.Context, minScore, maxScore int64, count int) ([]string, error) {
+	return r.searchAndPickPlayers(ctx, MatchPoolKey, minScore, maxScore, count)
+}
+
+func (r *PlayerRepository) SearchAndPickTicketPlayers(ctx context.Context, minScore, maxScore int64, count int) ([]string, error) {
+	return r.searchAndPickPlayers(ctx, MatchTicketPoolKey, minScore, maxScore, count)
+}
+
+func (r *PlayerRepository) searchAndPickPlayers(ctx context.Context, key string, minScore, maxScore int64, count int) ([]string, error) {
 	// 计算中心分数和差值范围
 	centerScore := (minScore + maxScore) / 2
 	delta := (maxScore - minScore) / 2
 
 	result, err := AtomicMatchScript.Run(ctx, r.client,
-		[]string{MatchPoolKey},
+		[]string{key},
 		centerScore,
 		delta,
 		count,

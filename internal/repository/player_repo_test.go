@@ -26,16 +26,39 @@ func newTestRepository(t *testing.T) (*PlayerRepository, func()) {
 		t.Skipf("redis is unavailable at %s: %v", addr, err)
 	}
 
-	if err := client.Del(ctx, MatchPoolKey, GlobalRankKey).Err(); err != nil {
+	if err := cleanRedisTestKeys(ctx, client); err != nil {
 		t.Fatalf("clean redis keys: %v", err)
 	}
 
 	repo := NewPlayerRepository(client)
 	cleanup := func() {
-		_ = client.Del(context.Background(), MatchPoolKey, GlobalRankKey).Err()
+		_ = cleanRedisTestKeys(context.Background(), client)
 		_ = client.Close()
 	}
 	return repo, cleanup
+}
+
+func cleanRedisTestKeys(ctx context.Context, client *redis.Client) error {
+	if err := client.Del(ctx, MatchPoolKey, MatchTicketPoolKey, GlobalRankKey).Err(); err != nil {
+		return err
+	}
+
+	var cursor uint64
+	for {
+		keys, nextCursor, err := client.Scan(ctx, cursor, "match:*", 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			return nil
+		}
+	}
 }
 
 func TestSearchAndPickPlayersIsAtomicAndRemovesMembers(t *testing.T) {
@@ -64,6 +87,32 @@ func TestSearchAndPickPlayersIsAtomicAndRemovesMembers(t *testing.T) {
 	}
 	if len(remaining) != 0 {
 		t.Fatalf("players should have been removed atomically, got %#v", remaining)
+	}
+}
+
+func TestSearchAndPickPlayersKeepsMembersWhenBelowRequiredCount(t *testing.T) {
+	repo, cleanup := newTestRepository(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := repo.AddPlayerToPool(ctx, "single", 1200); err != nil {
+		t.Fatalf("add single: %v", err)
+	}
+
+	players, err := repo.SearchAndPickPlayers(ctx, 1100, 1300, 2)
+	if err != nil {
+		t.Fatalf("search and pick: %v", err)
+	}
+	if len(players) != 0 {
+		t.Fatalf("should not pick below required count, got %#v", players)
+	}
+
+	players, err = repo.SearchAndPickPlayers(ctx, 1100, 1300, 1)
+	if err != nil {
+		t.Fatalf("search and pick one: %v", err)
+	}
+	if !reflect.DeepEqual(players, []string{"single"}) {
+		t.Fatalf("single player should remain in pool, got %#v", players)
 	}
 }
 

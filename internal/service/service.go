@@ -10,14 +10,5 @@
 // 对外的 API 层（gRPC Handler）在 /api 目录，负责协议转换和参数校验。
 package service
 
-// MatchService 匹配服务占位符
-//
-// TODO: 实现以下核心功能
-// - JoinMatchPool: 玩家进入匹配池
-// - LeaveMatchPool: 玩家退出匹配池
-// - Match: 执行匹配算法，返回匹配结果
-type MatchService struct {
-	// 后续将注入 Redis 客户端
-}
-
-// 注意：RankService 的完整实现已移至 rank_service.go
+// 注意：RankService 的实现位于 rank_service.go。
+// 匹配生命周期实现位于 match_service.go。

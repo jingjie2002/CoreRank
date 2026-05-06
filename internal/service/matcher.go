@@ -75,6 +75,9 @@ type MatchWorker struct {
 	// playerRepo 玩家数据仓库
 	playerRepo *repository.PlayerRepository
 
+	// matchService 用于把匹配 Worker 摘取到的玩家写成可查询的匹配结果
+	matchService *MatchService
+
 	// matchInterval 匹配扫描间隔
 	matchInterval time.Duration
 
@@ -164,6 +167,10 @@ func NewMatchWorker(playerRepo *repository.PlayerRepository) *MatchWorker {
 		playersPerMatch: 2,
 		buckets:         buckets,
 	}
+}
+
+func (w *MatchWorker) SetMatchService(matchService *MatchService) {
+	w.matchService = matchService
 }
 
 // Start 启动匹配工作器
@@ -309,6 +316,17 @@ func (w *MatchWorker) matchInBucket(ctx context.Context, bucket *ScoreBucket) {
 	// 原子递增总匹配数
 	// Add(1) 等价于 atomic.AddInt64(&val, 1)
 	w.matchedTotal.Add(1)
+
+	if w.matchService != nil {
+		result, err := w.matchService.CompletePickedPlayers(ctx, players, defaultMatchMode)
+		if err != nil {
+			fmt.Printf("[Matcher] ⚠️ 匹配结果写入失败: %v\n", err)
+			return
+		}
+		if result != nil {
+			fmt.Printf("[Matcher] 🧾 匹配结果已生成: match_id=%s room_id=%s\n", result.MatchID, result.RoomID)
+		}
+	}
 
 	fmt.Printf("[Matcher] ✅ [%s] 匹配成功！房间成员: %v\n", bucket.Name, players)
 }

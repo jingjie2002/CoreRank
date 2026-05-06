@@ -94,6 +94,9 @@ python scripts\rest_demo.py
 - `GET /api/rank/top`
 - `GET /api/rank/player/{player_id}`
 - `POST /api/match/pool`
+- `POST /api/match/tickets`
+- `GET /api/match/tickets/{ticket_id}`
+- `GET /api/match/results/{match_id}`
 
 通过标准：
 
@@ -101,6 +104,8 @@ python scripts\rest_demo.py
 - TopN 顺序正确。
 - 个人名次正确。
 - 玩家可加入匹配池。
+- 两个分数接近的玩家创建票据后可生成 `match_id` 和 `room_id`。
+- 可通过 `match_id` 查询匹配结果。
 
 ## 5. gRPC Robot 验证
 
@@ -185,14 +190,19 @@ CI 只能证明基础构建和测试通过，不代表生产环境可用。
 
 ### 匹配生命周期阶段
 
-必须补：
+RESTful 最小闭环已覆盖：
 
-- 创建匹配票据测试。
-- 重复入队测试。
-- 取消匹配测试。
+- 创建匹配票据。
+- 重复入队拒绝。
+- 取消匹配票据。
+- 匹配成功生成 `match_id` 和 `room_id`。
+- 查询匹配结果。
+
+仍需补：
+
 - 超时测试。
-- 匹配成功生成 `match_id` 和 `room_id` 测试。
-- 查询匹配结果测试。
+- gRPC 匹配生命周期接口。
+- 真实房间服或战斗服分配。
 
 ### MySQL 阶段
 

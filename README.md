@@ -22,6 +22,8 @@ Go 游戏匹配与排行榜中台
 - RESTful 调试与联调接口
 - Redis ZSet 匹配池与排行榜
 - Redis Lua 候选玩家原子摘取
+- RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
+- Redis 短期保存 `MatchTicket` 与 `MatchResult`
 - 积分桶扫描与滑动窗口匹配 Worker
 - Prometheus `/metrics` 指标端点
 - gRPC Robot 压测程序
@@ -32,7 +34,7 @@ Go 游戏匹配与排行榜中台
 ## 当前未实现
 
 - MySQL 持久化
-- 完整匹配票据生命周期
+- gRPC 匹配票据生命周期接口
 - 匹配结果通知
 - 房间服或战斗服分配
 - JWT 或账号鉴权
@@ -120,6 +122,8 @@ python scripts\rest_demo.py
 - 查询 TopN 排行榜。
 - 查询单个玩家名次。
 - 玩家加入匹配池。
+- 创建匹配票据。
+- 查询匹配结果。
 
 ### 4. 运行 gRPC Robot
 
@@ -160,6 +164,8 @@ python scripts\rest_demo.py
 - Go + gRPC/RESTful 实现匹配池与排行榜服务。
 - Redis ZSet 承载匹配池和排行榜热数据。
 - Redis Lua 将候选玩家查询与删除合并为原子操作。
+- Redis Hash 保存短期匹配票据和匹配结果。
+- RESTful API 支持创建/取消匹配票据、查询票据和查询匹配结果。
 - Prometheus 指标暴露。
 - Robot 压测脚本和 RESTful 演示脚本。
 - 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
@@ -178,7 +184,7 @@ python scripts\rest_demo.py
 执行顺序：
 
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
-2. 匹配生命周期闭环：`MatchTicket`、取消、超时、匹配结果、房间分配。
+2. 匹配生命周期闭环：RESTful `MatchTicket` 创建、取消、查询和 `MatchResult` 查询已完成；gRPC 匹配接口、超时扫描和真实房间服分配待补。
 3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照。
 4. 可观测性与公开文档：真实匹配指标、API 文档、架构文档、压测报告。
 

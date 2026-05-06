@@ -106,16 +106,20 @@ func main() {
 	rankService := service.NewRankService(playerRepo)
 	fmt.Printf("[%s] ✅ RankService 初始化完成\n", appName)
 
+	matchService := service.NewMatchService(playerRepo)
+	fmt.Printf("[%s] ✅ MatchService 初始化完成\n", appName)
+
 	// Handler 层（gRPC 处理器）
 	rankHandler := handler.NewRankHandler(rankService)
 	fmt.Printf("[%s] ✅ RankHandler 初始化完成\n", appName)
 
 	// MatchWorker（匹配引擎）
 	matchWorker := service.NewMatchWorker(playerRepo)
+	matchWorker.SetMatchService(matchService)
 	fmt.Printf("[%s] ✅ MatchWorker 初始化完成\n", appName)
 
 	// RESTful API 网关
-	httpHandler := handler.NewHTTPHandler(rankService, playerRepo)
+	httpHandler := handler.NewHTTPHandler(rankService, playerRepo, matchService)
 	fmt.Printf("[%s] ✅ RESTful API Handler 初始化完成\n", appName)
 
 	// =========================================================================
