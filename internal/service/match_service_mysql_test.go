@@ -118,3 +118,38 @@ func TestMatchServicePersistsLifecycleToMySQL(t *testing.T) {
 		t.Fatalf("unexpected persisted result: %#v", savedResult)
 	}
 }
+
+func TestMatchServicePersistsTimeoutToMySQL(t *testing.T) {
+	matchService, redisCleanup := newTestMatchService(t)
+	defer redisCleanup()
+
+	mysqlRepo, mysqlCleanup := newTestMySQLForService(t)
+	defer mysqlCleanup()
+	matchService.SetMySQLRepository(mysqlRepo)
+
+	ctx := context.Background()
+	ticket, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "mysql-timeout",
+		MMRScore: 1400,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+
+	timedOut, err := matchService.TimeoutExpiredTickets(ctx, time.UnixMilli(ticket.ExpiresAt+1), 10)
+	if err != nil {
+		t.Fatalf("timeout expired tickets: %v", err)
+	}
+	if len(timedOut) != 1 {
+		t.Fatalf("expected one timed out ticket, got %#v", timedOut)
+	}
+
+	saved, err := mysqlRepo.GetMatchTicket(ctx, ticket.TicketID)
+	if err != nil {
+		t.Fatalf("get mysql ticket: %v", err)
+	}
+	if saved.Status != repository.MatchStatusTimeout {
+		t.Fatalf("expected mysql timeout status, got %#v", saved)
+	}
+}

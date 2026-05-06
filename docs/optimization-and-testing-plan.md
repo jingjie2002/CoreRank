@@ -17,7 +17,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 持久化玩家、匹配票据和对局结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
-注意：这段完整表述中的 MySQL、匹配生命周期和 CI 已有可验证基线；超时扫描、真实房间服分配、P95/P99 和生产高可用仍不能写成已完成。
+注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描和 CI 已有可验证基线；真实房间服分配、P95/P99 和生产高可用仍不能写成已完成。
 
 ## 2. 中台到底跑在哪里
 
@@ -94,7 +94,7 @@ CoreRank 对外通常有两类入口：
 
 - RESTful 和 gRPC 最小闭环已完成：创建票据、查询票据、取消票据、查询匹配结果。
 - Redis 已短期保存 `MatchTicket` 与 `MatchResult`。
-- 超时扫描和真实房间服分配仍待补。
+- 超时扫描和房间分配抽象已补；真实房间服分配仍待补。
 
 新增核心模型：
 
@@ -137,6 +137,7 @@ Redis 设计：
 match:pool:{mode}              匹配池 ZSet
 match:ticket:{ticket_id}       匹配票据状态
 match:player_ticket:{player_id} 防重复入队
+match:ticket_expiry            超时扫描索引
 match:result:{match_id}        短期匹配结果
 ```
 
@@ -145,7 +146,7 @@ match:result:{match_id}        短期匹配结果
 - 能演示创建票据、取消票据、匹配成功、查询匹配结果。
 - 重复入队会被拒绝或幂等处理。
 - 匹配成功后能生成 `match_id` 和 `room_id`。
-- 有测试覆盖重复入队、取消、匹配成功、超时。
+- 有测试覆盖重复入队、取消、匹配成功、超时。当前已补基础覆盖。
 
 ### 阶段 2：MySQL 持久化证据链
 
@@ -183,7 +184,7 @@ rank_snapshots
 
 - Docker Compose 能拉起 Redis + MySQL。当前 Docker 本机未验证，GitHub Actions 已使用 MySQL service 验证。
 - 有初始化 SQL 或迁移脚本。已完成 `internal/repository/mysql_schema.sql`。
-- 匹配票据和匹配结果能写入 MySQL。已完成。
+- 匹配票据、超时状态和匹配结果能写入 MySQL。已完成基础覆盖。
 - 有 MySQL repository 测试或集成测试。已完成。
 - 文档写清关键索引设计。仍需补充更完整说明。
 

@@ -71,6 +71,14 @@ func (r *PlayerRepository) CreateMatchTicket(ctx context.Context, ticket MatchTi
 		_ = r.client.Del(context.Background(), playerKey, ticketKey).Err()
 		return err
 	}
+	if err := r.client.ZAdd(ctx, MatchTicketExpiryKey, redis.Z{
+		Score:  float64(ticket.ExpiresAt),
+		Member: ticket.TicketID,
+	}).Err(); err != nil {
+		_ = r.client.Del(context.Background(), playerKey, ticketKey).Err()
+		_ = r.client.ZRem(context.Background(), MatchTicketPoolKey, ticket.PlayerID).Err()
+		return err
+	}
 
 	return nil
 }
@@ -105,6 +113,7 @@ func (r *PlayerRepository) CancelMatchTicket(ctx context.Context, ticketID strin
 	})
 	pipe.Del(ctx, playerTicketKey(ticket.PlayerID))
 	pipe.ZRem(ctx, MatchTicketPoolKey, ticket.PlayerID)
+	pipe.ZRem(ctx, MatchTicketExpiryKey, ticketID)
 	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return nil, err
@@ -162,6 +171,7 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 			"updated_at": ticket.UpdatedAt,
 		})
 		pipe.Del(ctx, playerTicketKey(ticket.PlayerID))
+		pipe.ZRem(ctx, MatchTicketExpiryKey, ticket.TicketID)
 	}
 
 	result.PlayerIDs = matchedPlayerIDs
@@ -184,6 +194,73 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 	}
 
 	return &result, tickets, nil
+}
+
+func (r *PlayerRepository) TimeoutExpiredMatchTickets(ctx context.Context, now int64, limit int64) ([]*MatchTicket, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	ticketIDs, err := r.client.ZRangeByScore(ctx, MatchTicketExpiryKey, &redis.ZRangeBy{
+		Min:    "-inf",
+		Max:    strconv.FormatInt(now, 10),
+		Offset: 0,
+		Count:  limit,
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(ticketIDs) == 0 {
+		return nil, nil
+	}
+
+	timedOut := make([]*MatchTicket, 0, len(ticketIDs))
+	for _, ticketID := range ticketIDs {
+		ticket, err := r.timeoutMatchTicket(ctx, ticketID, now)
+		if err != nil {
+			return nil, err
+		}
+		if ticket != nil {
+			timedOut = append(timedOut, ticket)
+		}
+	}
+	return timedOut, nil
+}
+
+func (r *PlayerRepository) timeoutMatchTicket(ctx context.Context, ticketID string, now int64) (*MatchTicket, error) {
+	ticket, err := r.GetMatchTicket(ctx, ticketID)
+	if err != nil {
+		if errors.Is(err, ErrTicketNotFound) {
+			_ = r.client.ZRem(ctx, MatchTicketExpiryKey, ticketID).Err()
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result, err := TimeoutMatchTicketScript.Run(
+		ctx,
+		r.client,
+		[]string{
+			matchTicketKey(ticketID),
+			playerTicketKey(ticket.PlayerID),
+			MatchTicketPoolKey,
+			MatchTicketExpiryKey,
+		},
+		ticketID,
+		now,
+		MatchStatusQueued,
+		MatchStatusTimeout,
+	).Int()
+	if err != nil {
+		return nil, err
+	}
+	if result != 1 {
+		return nil, nil
+	}
+
+	ticket.Status = MatchStatusTimeout
+	ticket.UpdatedAt = now
+	return ticket, nil
 }
 
 func (r *PlayerRepository) GetMatchResult(ctx context.Context, matchID string) (*MatchResult, error) {

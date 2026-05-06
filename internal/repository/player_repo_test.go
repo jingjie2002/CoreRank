@@ -64,7 +64,7 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanRedisTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, MatchPoolKey, MatchTicketPoolKey, GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, MatchPoolKey, MatchTicketPoolKey, MatchTicketExpiryKey, GlobalRankKey).Err(); err != nil {
 		return err
 	}
 

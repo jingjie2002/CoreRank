@@ -12,6 +12,8 @@ const (
 	MatchPoolKey = "{match:pool}"
 	// MatchTicketPoolKey 匹配生命周期票据使用的 Redis Key
 	MatchTicketPoolKey = "{match:ticket_pool}"
+	// MatchTicketExpiryKey 匹配票据超时扫描使用的 Redis ZSet
+	MatchTicketExpiryKey = "{match:ticket_expiry}"
 	// GlobalRankKey 全局排行榜的 Redis Key
 	GlobalRankKey = "{rank:global}"
 )

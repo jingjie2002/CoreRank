@@ -97,6 +97,8 @@ type MatchWorker struct {
 	matchedTotal atomic.Int64
 }
 
+const timeoutSweepLimit = 100
+
 // NewMatchWorker 创建匹配工作器实例
 //
 // 初始化多个积分桶，覆盖常见的分数范围：
@@ -217,6 +219,7 @@ func (w *MatchWorker) Start(ctx context.Context) {
 				// ================================================================
 				// 采用轮询方式扫描每个桶，确保所有分段的玩家都有机会被匹配。
 				// 这避免了"饥饿"问题：高分段玩家少，但仍能得到及时匹配。
+				w.sweepExpiredTickets(ctx)
 				w.scanAllBuckets(ctx)
 
 			case <-statsTicker.C:
@@ -245,6 +248,20 @@ func (w *MatchWorker) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (w *MatchWorker) sweepExpiredTickets(ctx context.Context) {
+	if w.matchService == nil {
+		return
+	}
+	tickets, err := w.matchService.TimeoutExpiredTickets(ctx, time.Now(), timeoutSweepLimit)
+	if err != nil {
+		fmt.Printf("[Matcher] ⚠️ 匹配票据超时扫描失败: %v\n", err)
+		return
+	}
+	if len(tickets) > 0 {
+		fmt.Printf("[Matcher] ⏱️ 已标记 %d 个超时匹配票据\n", len(tickets))
+	}
 }
 
 // scanAllBuckets 扫描所有积分桶

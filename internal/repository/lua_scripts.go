@@ -62,3 +62,52 @@ redis.call('ZADD', key, composite_score, player_id)
 
 return composite_score
 `)
+
+// TimeoutMatchTicketScript 原子化地将过期且仍在排队的票据标记为 timeout。
+// KEYS[1]: match:ticket:{ticket_id}
+// KEYS[2]: match:player_ticket:{player_id}
+// KEYS[3]: ticket pool ZSet
+// KEYS[4]: ticket expiry ZSet
+// ARGV[1]: ticket_id
+// ARGV[2]: now_ms
+// ARGV[3]: queued status
+// ARGV[4]: timeout status
+// 返回: 1 表示成功超时，0 表示票据不存在、已非 queued 或尚未过期
+var TimeoutMatchTicketScript = redis.NewScript(`
+local ticket_key = KEYS[1]
+local player_ticket_key = KEYS[2]
+local pool_key = KEYS[3]
+local expiry_key = KEYS[4]
+
+local ticket_id = ARGV[1]
+local now_ms = tonumber(ARGV[2])
+local queued_status = ARGV[3]
+local timeout_status = ARGV[4]
+
+if redis.call('EXISTS', ticket_key) == 0 then
+    redis.call('ZREM', expiry_key, ticket_id)
+    return 0
+end
+
+local status = redis.call('HGET', ticket_key, 'status')
+if status ~= queued_status then
+    redis.call('ZREM', expiry_key, ticket_id)
+    return 0
+end
+
+local expires_at = tonumber(redis.call('HGET', ticket_key, 'expires_at') or '0')
+if expires_at > now_ms then
+    return 0
+end
+
+local player_id = redis.call('HGET', ticket_key, 'player_id')
+
+redis.call('HSET', ticket_key, 'status', timeout_status, 'updated_at', now_ms)
+redis.call('DEL', player_ticket_key)
+if player_id then
+    redis.call('ZREM', pool_key, player_id)
+end
+redis.call('ZREM', expiry_key, ticket_id)
+
+return 1
+`)

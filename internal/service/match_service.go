@@ -26,16 +26,28 @@ type CreateMatchTicketRequest struct {
 }
 
 type MatchService struct {
-	playerRepo *repository.PlayerRepository
-	mysqlRepo  *repository.MySQLRepository
+	playerRepo    *repository.PlayerRepository
+	mysqlRepo     *repository.MySQLRepository
+	roomAllocator RoomAllocator
 }
 
 func NewMatchService(playerRepo *repository.PlayerRepository) *MatchService {
-	return &MatchService{playerRepo: playerRepo}
+	return &MatchService{
+		playerRepo:    playerRepo,
+		roomAllocator: NewIDRoomAllocator(),
+	}
 }
 
 func (s *MatchService) SetMySQLRepository(mysqlRepo *repository.MySQLRepository) {
 	s.mysqlRepo = mysqlRepo
+}
+
+func (s *MatchService) SetRoomAllocator(roomAllocator RoomAllocator) {
+	if roomAllocator == nil {
+		s.roomAllocator = NewIDRoomAllocator()
+		return
+	}
+	s.roomAllocator = roomAllocator
 }
 
 func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRequest) (*repository.MatchTicket, error) {
@@ -110,6 +122,24 @@ func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repo
 	return ticket, nil
 }
 
+func (s *MatchService) TimeoutExpiredTickets(ctx context.Context, now time.Time, limit int64) ([]*repository.MatchTicket, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	tickets, err := s.playerRepo.TimeoutExpiredMatchTickets(ctx, now.UnixMilli(), limit)
+	if err != nil {
+		return nil, err
+	}
+	if s.mysqlRepo != nil {
+		for _, ticket := range tickets {
+			if err := s.mysqlRepo.UpsertMatchTicket(ctx, *ticket); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return tickets, nil
+}
+
 func (s *MatchService) GetResult(ctx context.Context, matchID string) (*repository.MatchResult, error) {
 	if matchID == "" {
 		return nil, repository.ErrResultNotFound
@@ -139,9 +169,14 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 	}
 
 	now := time.Now().UnixMilli()
+	roomID := s.roomAllocator.AllocateRoom(ctx, RoomAllocationRequest{
+		MatchMode: matchMode,
+		PlayerIDs: append([]string(nil), players...),
+	})
+
 	result := repository.MatchResult{
 		MatchID:   newID("match"),
-		RoomID:    newID("room"),
+		RoomID:    roomID,
 		MatchMode: matchMode,
 		Status:    repository.MatchStatusMatched,
 		CreatedAt: now,

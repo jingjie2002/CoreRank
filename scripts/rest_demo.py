@@ -94,6 +94,19 @@ def main():
         if match_id:
             print(f">>> GET /api/match/results/{match_id}")
             print(json.dumps(request("GET", f"/api/match/results/{match_id}"), ensure_ascii=False, indent=2))
+
+        print(">>> POST /api/match/tickets (timeout demo)")
+        timeout_ticket = request("POST", "/api/match/tickets", {
+            "player_id": "p_timeout",
+            "mmr_score": 4800,
+            "match_mode": "duel",
+            "max_wait_ms": 50,
+        })
+        print(json.dumps(timeout_ticket, ensure_ascii=False, indent=2))
+
+        time.sleep(0.3)
+        print(f">>> GET /api/match/tickets/{timeout_ticket['TicketID']}")
+        print(json.dumps(request("GET", f"/api/match/tickets/{timeout_ticket['TicketID']}"), ensure_ascii=False, indent=2))
     finally:
         proc.terminate()
         try:

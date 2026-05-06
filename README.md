@@ -25,6 +25,8 @@ Go 游戏匹配与排行榜中台
 - Redis Lua 候选玩家原子摘取
 - RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
 - Redis 短期保存 `MatchTicket` 与 `MatchResult`
+- 匹配票据超时扫描：到期 queued 票据会推进为 `timeout`
+- 房间分配抽象：默认生成逻辑 `room_id`，可替换为真实房间服分配实现
 - MySQL 可选持久化：玩家分数、匹配票据、匹配结果、榜单快照
 - 积分桶扫描与滑动窗口匹配 Worker
 - Prometheus `/metrics` 指标端点
@@ -35,9 +37,8 @@ Go 游戏匹配与排行榜中台
 
 ## 当前未实现
 
-- 匹配票据超时扫描
 - 匹配结果通知
-- 房间服或战斗服分配
+- 真实房间服或战斗服调度
 - JWT 或账号鉴权
 - Redis Cluster 实测部署
 - P95/P99 延迟采集
@@ -182,6 +183,8 @@ python scripts\rest_demo.py
 - Redis Lua 将候选玩家查询与删除合并为原子操作。
 - Redis Hash 保存短期匹配票据和匹配结果。
 - RESTful 和 gRPC API 支持创建/取消匹配票据、查询票据和查询匹配结果。
+- 匹配票据支持超时扫描，超时玩家可重新入队。
+- 匹配成功通过可替换的房间分配抽象生成逻辑 `room_id`。
 - MySQL 可选持久化玩家分数、匹配票据、匹配结果和榜单快照。
 - Prometheus 指标暴露。
 - Robot 压测脚本和 RESTful 演示脚本。
@@ -200,8 +203,8 @@ python scripts\rest_demo.py
 执行顺序：
 
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
-2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、查询和 `MatchResult` 查询已完成；超时扫描和真实房间服分配待补。
-3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；后续继续补超时扫描和更细的业务查询。
+2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；真实房间服分配待补。
+3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；后续继续补更细的业务查询和故障策略。
 4. 可观测性与公开文档：真实匹配指标、API 文档、架构文档、压测报告。
 
 ## 文档

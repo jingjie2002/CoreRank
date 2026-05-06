@@ -66,7 +66,7 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanMatchServiceTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
 		return err
 	}
 
@@ -86,6 +86,14 @@ func cleanMatchServiceTestKeys(ctx context.Context, client *redis.Client) error 
 			return nil
 		}
 	}
+}
+
+type fixedRoomAllocator struct {
+	roomID string
+}
+
+func (a fixedRoomAllocator) AllocateRoom(context.Context, RoomAllocationRequest) string {
+	return a.roomID
 }
 
 func TestMatchTicketsCreateMatchedResult(t *testing.T) {
@@ -140,6 +148,41 @@ func TestMatchTicketsCreateMatchedResult(t *testing.T) {
 	}
 }
 
+func TestMatchServiceUsesRoomAllocator(t *testing.T) {
+	matchService, cleanup := newTestMatchService(t)
+	defer cleanup()
+	matchService.SetRoomAllocator(fixedRoomAllocator{roomID: "room_fixed"})
+
+	ctx := context.Background()
+	_, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "room-p1",
+		MMRScore: 1800,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create first ticket: %v", err)
+	}
+	second, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "room-p2",
+		MMRScore: 1810,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create second ticket: %v", err)
+	}
+	if second.RoomID != "room_fixed" {
+		t.Fatalf("expected fixed room id, got %#v", second)
+	}
+
+	result, err := matchService.GetResult(ctx, second.MatchID)
+	if err != nil {
+		t.Fatalf("get match result: %v", err)
+	}
+	if result.RoomID != "room_fixed" {
+		t.Fatalf("result should use fixed room id, got %#v", result)
+	}
+}
+
 func TestMatchTicketCanBeCancelled(t *testing.T) {
 	matchService, cleanup := newTestMatchService(t)
 	defer cleanup()
@@ -165,6 +208,57 @@ func TestMatchTicketCanBeCancelled(t *testing.T) {
 	_, err = matchService.CancelTicket(ctx, ticket.TicketID)
 	if !errors.Is(err, repository.ErrTicketNotQueued) {
 		t.Fatalf("second cancellation should fail as not queued, got %v", err)
+	}
+}
+
+func TestMatchTicketCanTimeout(t *testing.T) {
+	matchService, cleanup := newTestMatchService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	ticket, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "timeout-me",
+		MMRScore: 1500,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+
+	timedOut, err := matchService.TimeoutExpiredTickets(ctx, time.UnixMilli(ticket.ExpiresAt+1), 10)
+	if err != nil {
+		t.Fatalf("timeout expired tickets: %v", err)
+	}
+	if len(timedOut) != 1 || timedOut[0].TicketID != ticket.TicketID {
+		t.Fatalf("unexpected timed out tickets: %#v", timedOut)
+	}
+	if timedOut[0].Status != repository.MatchStatusTimeout {
+		t.Fatalf("ticket should timeout, got %#v", timedOut[0])
+	}
+
+	saved, err := matchService.GetTicket(ctx, ticket.TicketID)
+	if err != nil {
+		t.Fatalf("get timed out ticket: %v", err)
+	}
+	if saved.Status != repository.MatchStatusTimeout {
+		t.Fatalf("saved ticket should be timeout, got %#v", saved)
+	}
+
+	_, err = matchService.CancelTicket(ctx, ticket.TicketID)
+	if !errors.Is(err, repository.ErrTicketNotQueued) {
+		t.Fatalf("cancel timed out ticket should fail as not queued, got %v", err)
+	}
+
+	retry, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "timeout-me",
+		MMRScore: 1510,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("timed out player should be able to requeue: %v", err)
+	}
+	if retry.Status != repository.MatchStatusQueued {
+		t.Fatalf("retry ticket should be queued, got %#v", retry)
 	}
 }
 
