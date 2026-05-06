@@ -77,6 +77,73 @@ message MatchResponse {
     int64 wait_duration_ms = 5;
 }
 
+// MatchTicket 匹配票据
+message MatchTicket {
+    string ticket_id = 1;
+    string player_id = 2;
+    int64 mmr_score = 3;
+    string match_mode = 4;
+    string status = 5;
+    string match_id = 6;
+    string room_id = 7;
+    int64 created_at = 8;
+    int64 updated_at = 9;
+    int64 expires_at = 10;
+}
+
+// MatchResult 匹配结果
+message MatchResult {
+    string match_id = 1;
+    string room_id = 2;
+    string match_mode = 3;
+    repeated string player_ids = 4;
+    string status = 5;
+    int64 created_at = 6;
+}
+
+// CreateMatchTicketRequest 创建匹配票据请求
+message CreateMatchTicketRequest {
+    string player_id = 1;
+    int64 mmr_score = 2;
+    string match_mode = 3;
+    int64 max_wait_ms = 4;
+}
+
+// CreateMatchTicketResponse 创建匹配票据响应
+message CreateMatchTicketResponse {
+    MatchTicket ticket = 1;
+}
+
+// GetMatchTicketRequest 查询匹配票据请求
+message GetMatchTicketRequest {
+    string ticket_id = 1;
+}
+
+// GetMatchTicketResponse 查询匹配票据响应
+message GetMatchTicketResponse {
+    MatchTicket ticket = 1;
+}
+
+// CancelMatchTicketRequest 取消匹配票据请求
+message CancelMatchTicketRequest {
+    string ticket_id = 1;
+}
+
+// CancelMatchTicketResponse 取消匹配票据响应
+message CancelMatchTicketResponse {
+    MatchTicket ticket = 1;
+}
+
+// GetMatchResultRequest 查询匹配结果请求
+message GetMatchResultRequest {
+    string match_id = 1;
+}
+
+// GetMatchResultResponse 查询匹配结果响应
+message GetMatchResultResponse {
+    MatchResult result = 1;
+}
+
 // UpdateScoreRequest 更新分数请求
 message UpdateScoreRequest {
     // 玩家 ID
@@ -156,4 +223,12 @@ service RankService {
     // 
     // 性能要求：P99 延迟 < 50ms（Top 100 场景）
     rpc GetTopRank(GetTopRankRequest) returns (GetTopRankResponse);
+}
+
+// MatchService 提供匹配票据生命周期接口。
+service MatchService {
+    rpc CreateMatchTicket(CreateMatchTicketRequest) returns (CreateMatchTicketResponse);
+    rpc GetMatchTicket(GetMatchTicketRequest) returns (GetMatchTicketResponse);
+    rpc CancelMatchTicket(CancelMatchTicketRequest) returns (CancelMatchTicketResponse);
+    rpc GetMatchResult(GetMatchResultRequest) returns (GetMatchResultResponse);
 }

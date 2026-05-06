@@ -146,7 +146,29 @@ Robot 默认参数：
 - 不要把本机 TPS 写成生产承诺。
 - Windows 环境若出现 `Path/PATH` 重复导致启动器异常，应分开终端手动启动服务端和 Robot。
 
-## 6. Prometheus 验证
+## 6. gRPC 匹配生命周期验证
+
+当前 gRPC 匹配生命周期由测试覆盖：
+
+```powershell
+go test ./internal/handler
+```
+
+覆盖链路：
+
+- `CreateMatchTicket`
+- `GetMatchTicket`
+- `GetMatchResult`
+
+测试方式：
+
+- 使用内存 `bufconn` 启动 gRPC Server，不占用真实端口。
+- 复用 Redis 测试环境。
+- 创建两个分数接近的玩家票据。
+- 验证两个票据进入同一个 `match_id`。
+- 验证可通过 gRPC 查询匹配结果。
+
+## 7. Prometheus 验证
 
 服务端启动后访问：
 
@@ -168,7 +190,7 @@ http://localhost:9091/metrics
 - 匹配池人数。
 - 匹配耗时。
 
-## 7. CI 验证
+## 8. CI 验证
 
 当前 CI 基线位于：
 
@@ -186,11 +208,11 @@ CI 目标：
 
 CI 只能证明基础构建和测试通过，不代表生产环境可用。
 
-## 8. 后续阶段测试要求
+## 9. 后续阶段测试要求
 
 ### 匹配生命周期阶段
 
-RESTful 最小闭环已覆盖：
+RESTful 和 gRPC 最小闭环已覆盖：
 
 - 创建匹配票据。
 - 重复入队拒绝。
@@ -201,7 +223,6 @@ RESTful 最小闭环已覆盖：
 仍需补：
 
 - 超时测试。
-- gRPC 匹配生命周期接口。
 - 真实房间服或战斗服分配。
 
 ### MySQL 阶段
@@ -227,7 +248,7 @@ RESTful 最小闭环已覆盖：
 - P95/P99，只有真实采集后才能写。
 - Redis/MySQL 是否本机或远程。
 
-## 9. 面试演示建议
+## 10. 面试演示建议
 
 面试时推荐演示顺序：
 

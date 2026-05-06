@@ -113,6 +113,9 @@ func main() {
 	rankHandler := handler.NewRankHandler(rankService)
 	fmt.Printf("[%s] ✅ RankHandler 初始化完成\n", appName)
 
+	matchHandler := handler.NewMatchHandler(matchService)
+	fmt.Printf("[%s] ✅ MatchHandler 初始化完成\n", appName)
+
 	// MatchWorker（匹配引擎）
 	matchWorker := service.NewMatchWorker(playerRepo)
 	matchWorker.SetMatchService(matchService)
@@ -186,6 +189,9 @@ func main() {
 	// 它将我们的 Handler 实现绑定到 gRPC 服务器上。
 	pb.RegisterRankServiceServer(grpcServer, rankHandler)
 	fmt.Printf("[%s] ✅ RankService 已注册到 gRPC 服务器\n", appName)
+
+	pb.RegisterMatchServiceServer(grpcServer, matchHandler)
+	fmt.Printf("[%s] ✅ MatchService 已注册到 gRPC 服务器\n", appName)
 
 	// 启用 gRPC Reflection
 	//
