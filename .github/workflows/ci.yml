@@ -1,0 +1,52 @@
+name: CoreRank CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Go test and vet
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run tests
+        env:
+          CORERANK_TEST_REDIS_ADDR: 127.0.0.1:6379
+        run: go test ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Build server
+        run: go build ./cmd/server
+
+      - name: Build robot
+        run: go build ./cmd/robot

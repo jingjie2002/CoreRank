@@ -1,122 +1,192 @@
-# CoreRank - 高性能游戏匹配系统
+# CoreRank
 
-![Go Version](https://img.shields.io/badge/Go-1.25.0-00ADD8?style=flat-square&logo=go)
-![Redis](https://img.shields.io/badge/Redis-7.2-DC382D?style=flat-square&logo=redis&logoColor=white)
-![gRPC](https://img.shields.io/badge/gRPC-Protobuf-4285F4?style=flat-square&logo=google)
-![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?style=flat-square&logo=prometheus)
-![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)
+CoreRank 是一个面向竞技游戏服务端场景的 Go 项目，聚焦两个常见中台能力：
 
-> **"Simplicity is the ultimate sophistication."**  
-> CoreRank 是专为竞技游戏设计的后端中间件，致力于解决高并发场景下的 **原子匹配 (Atomic Matchmaking)** 和 **实时排行榜 (Real-time Leaderboards)** 难题。项目实测单节点 **TPS 突破 12,000+**，是分布式一致性与可观测性的理想参考实现。
+- 匹配池：玩家入队、按分数范围摘取候选玩家。
+- 排行榜：更新玩家分数、查询 TopN 和个人名次。
 
----
+项目提供 gRPC 与 RESTful 两种接入方式，核心热数据使用 Redis ZSet 保存，候选玩家摘取通过 Redis Lua 脚本把“查询 + 删除”收敛为一次原子执行，降低并发重复匹配风险。
 
-## 🌟 核心技术亮点
+当前定位是：
 
-- **🚀 原子匹配引擎 (Atomic Matching Engine)**  
-  基于 **Redis Lua Scripting** 实现 `Check-and-Pick` 语义。在分布式环境中完全消除竞态条件（Race Conditions），从根本上杜绝了“多人匹配到同一位置”或“重复匹配”的并发 bug。
+```text
+Go 游戏匹配与排行榜中台
+```
 
-- **⚖️ 同分异位复合排序 (Composite Score Algorithm)**  
-  创新性采用 `Score + Timestamp` 位运算编码方案。完美解决了 Redis ZSet 默认按字典序排列同分成员的问题，在纳秒级精度上严格保障 **"先到先得" (First Come, First Served)** 的竞技公平性。
+它不是完整游戏服务器，也不包含真实战斗服、房间服、账号体系或生产级 Redis Cluster 部署。
 
-- **🎮 自适应滑动窗口 (Adaptive Sliding Window)**  
-  `MatchWorker` 采用多桶分片扫描与指数退避算法，动态平衡 **"匹配耗时"** 与 **"竞技水平差异"** (纳什均衡)。初期优先精准匹配，随等待时间增加逐步放宽范围，拒绝死循环等待。
+## 当前已实现
 
-- **⚡ 无锁化可观测性 (Lock-Free Observability)**  
-  全链路集成 Prometheus 监控。在关键数据路径上采用 `sync/atomic` 替代传统的互斥锁，确保在高频采集下监控组件的性能损耗忽略不计 (< 0.1%)。
+- Go 服务端入口：`cmd/server`
+- gRPC 排行榜接口：`UpdateScore`、`GetTopRank`
+- RESTful 调试与联调接口
+- Redis ZSet 匹配池与排行榜
+- Redis Lua 候选玩家原子摘取
+- 积分桶扫描与滑动窗口匹配 Worker
+- Prometheus `/metrics` 指标端点
+- gRPC Robot 压测程序
+- RESTful 演示脚本
+- Redis 关键路径测试
+- GitHub Actions CI 基线
 
----
+## 当前未实现
 
-## 🏗️ 架构设计
+- MySQL 持久化
+- 完整匹配票据生命周期
+- 匹配结果通知
+- 房间服或战斗服分配
+- JWT 或账号鉴权
+- Redis Cluster 实测部署
+- P95/P99 延迟采集
+- 生产级高可用部署
 
-CoreRank 采用分层微服务架构，数据流向清晰，职责单一：
+这些内容是后续优化方向，未实现前不应写进简历正文。
+
+## 架构概览
 
 ```mermaid
 graph TB
-    Client["🎮 游戏客户端 / 压测 Robot"] -- "gRPC (HTTP/2)" --> Server["🔥 CoreRank Server"]
-    Server -- "Pipeline" --> Redis[("🟥 Redis 7.2 Cluster")]
-    Server -. "Metrics" .-> Prometheus[("📉 Prometheus")]
-    Prometheus -. "Visualize" .-> Grafana[("📊 Grafana")]
-
-    subgraph "CoreRank Internals"
-        Handler["gRPC Handler"]
-        Service["Rank Service"]
-        Lua["Lua Engine"]
-        Worker["Background Matcher"]
-    end
+    GameService["游戏网关 / 房间服 / 后台工具"] -->|"gRPC / RESTful"| CoreRank["CoreRank Server"]
+    CoreRank --> RankService["Rank Service"]
+    CoreRank --> MatchWorker["Match Worker"]
+    RankService --> Redis[("Redis ZSet")]
+    MatchWorker --> Redis
+    CoreRank --> Metrics["Prometheus /metrics"]
 ```
 
-- **Robot**: 模拟数万并发玩家，生成真实的高压流量。
-- **Server**: 无状态计算层，通过 gRPC 处理请求，负责鉴权与调度。
-- **Redis Lua**: 数据原子层，所有状态变更收敛于 Lua 脚本，保证 ACID 特性。
-- **Prometheus**: 监控层，实时抓取系统脉搏。
+分层结构：
 
----
+| 目录 | 说明 |
+|---|---|
+| `cmd/server` | 服务端入口，启动 Redis、gRPC、RESTful、Prometheus 和匹配 Worker |
+| `cmd/robot` | gRPC 压测机器人 |
+| `api/proto` | Protobuf 协议和生成代码 |
+| `internal/handler` | gRPC 与 RESTful handler |
+| `internal/service` | 排行榜服务与匹配 Worker |
+| `internal/repository` | Redis 仓库层与 Lua 脚本 |
+| `internal/metrics` | Prometheus 指标定义 |
+| `pkg/redis` | Redis 客户端封装 |
+| `scripts` | RESTful 演示脚本 |
+| `docs` | 验证、面试讲法和优化方案文档 |
 
-## 📂 工程目录结构
+## 快速开始
 
-遵循 [Golang Standard Project Layout](https://github.com/golang-standards/project-layout) 最佳实践：
+### 1. 启动依赖
 
-| 目录 | 职责说明 |
-|:---|:---|
-| `/cmd` | **入口文件**。Server (`/cmd/server`) 与 压测机器人 (`/cmd/robot`)。 |
-| `/internal` | **私有业务逻辑**。包含 gRPC Handlers, Rank Service, Repository 及核心 Lua 脚本。 |
-| `/api` | **接口契约**。Protobuf 定义文件及生成的 Go 代码。 |
-| `/pkg` | **公共库**。可复用的基础设施封装，如 Redis Client。 |
-| `/configs` | **配置清单**。Docker Compose 环境编排与 Prometheus 采集配置。 |
+当前最小运行依赖是 Redis。
 
----
-
-## 🛠️ 快速开始 (Quick Start)
-
-### 前置要求
-- Docker & Docker Compose
-- Go 1.25+ (仅本地开发需要)
-
-### 1. 启动基础设施
-一键拉起 Redis, Prometheus 和 Grafana 环境：
-```bash
-docker-compose up -d
+```powershell
+docker compose up -d corerank-redis
 ```
 
-### 2. 启动 CoreRank 服务
-运行 gRPC 服务端 (监听端口 :8080)：
-```bash
+如果需要 Prometheus 和 Grafana：
+
+```powershell
+docker compose up -d
+```
+
+### 2. 启动服务端
+
+```powershell
 go run ./cmd/server
 ```
-> *Log: ✅ Engine Synchronized. Ready for Matchmaking.*
 
-### 3. 执行全链路压测
-启动 Robot 模拟 100 个并发玩家发起 10,000 次请求：
-```bash
+默认端口：
+
+| 服务 | 默认地址 |
+|---|---|
+| gRPC | `:8080` |
+| RESTful | `:8081` |
+| Prometheus metrics | `:9091` |
+
+可通过环境变量改端口：
+
+```powershell
+$env:GRPC_ADDR="127.0.0.1:18080"
+$env:HTTP_ADDR="127.0.0.1:18081"
+$env:METRICS_ADDR="127.0.0.1:19091"
+go run ./cmd/server
+```
+
+### 3. 运行 RESTful 演示
+
+```powershell
+python scripts\rest_demo.py
+```
+
+演示覆盖：
+
+- 更新玩家分数。
+- 查询 TopN 排行榜。
+- 查询单个玩家名次。
+- 玩家加入匹配池。
+
+### 4. 运行 gRPC Robot
+
+先启动服务端，再另开终端执行：
+
+```powershell
 go run ./cmd/robot
 ```
-> *预期结果: TPS > 10,000, 成功率 100%, P99 < 10ms*
 
-### 4. 实时监控大盘
-访问 Grafana Dashboard 观察系统水位：
-- 地址: [http://localhost:3000](http://localhost:3000) (账号/密码: admin/admin)
-- 核心指标: `corerank_match_total`, `request_latency_p99`
+Robot 默认模拟：
 
----
+- 100 个 goroutine。
+- 每个 goroutine 发送 100 次 `UpdateScore`。
+- 总计 10000 次 gRPC 请求。
 
-## 📊 性能表现 (Performance)
+性能数字只代表当前机器、当前 Redis 和当前测试参数，不代表生产承诺。
 
-在普通开发机 (Windows 11 / Docker Desktop) 上的实测数据：
+## 验证命令
 
-| 核心指标 | 实测数据 | 评价 |
-|:---|:---:|:---|
-| **TPS (吞吐量)** | **12,450** | 🚀 单节点性能卓越，轻松应对万人同服 |
-| **Match Latency** | **1.2ms** | ⚡ 极速响应，用户无感 |
-| **Concurrency** | **10,000+** | ✅ 高并发下零错误，系统稳如磐石 |
+推荐每次改动后执行：
 
----
+```powershell
+$env:GOCACHE = Join-Path (Get-Location) ".gocache"
+go test ./...
+go vet ./...
+python scripts\rest_demo.py
+```
 
-## 📝 深度文档
-- [技术审计报告 (Deep Dive)](./CoreRank_Technical_Report.md) - 架构细节与源码解析
-- [项目演进提案 (History)](./CoreRank_Proposal.md) - 设计思路演变
+更多测试策略见：
 
----
+- [验证指南](./docs/verification.md)
+- [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
 
-> Built with ❤️ by **CoreRank Team**.  
-> *Dedicated to building the next generation of game backend infrastructure.*
+## 当前可写进简历的边界
+
+可以写：
+
+- Go + gRPC/RESTful 实现匹配池与排行榜服务。
+- Redis ZSet 承载匹配池和排行榜热数据。
+- Redis Lua 将候选玩家查询与删除合并为原子操作。
+- Prometheus 指标暴露。
+- Robot 压测脚本和 RESTful 演示脚本。
+- 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
+
+不建议写：
+
+- 已生产落地。
+- 已支持 Redis Cluster。
+- 完整游戏服务器。
+- 完整房间/战斗服调度。
+- MySQL 持久化。
+- P99 延迟数据。
+
+## 后续优化路线
+
+执行顺序：
+
+1. 可信展示基线：README、CI、验证文档、Git 状态整理。
+2. 匹配生命周期闭环：`MatchTicket`、取消、超时、匹配结果、房间分配。
+3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照。
+4. 可观测性与公开文档：真实匹配指标、API 文档、架构文档、压测报告。
+
+## 文档
+
+- [验证指南](./docs/verification.md)
+- [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
+- [面试讲法](./docs/interview-notes.md)
+- [2026-05-06 验证记录](./docs/verification-2026-05-06.md)
+- [技术报告](./CoreRank_Technical_Report.md)
+- [项目提案](./CoreRank_Proposal.md)
