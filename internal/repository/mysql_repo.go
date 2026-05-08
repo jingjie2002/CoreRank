@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -104,7 +105,56 @@ func (r *MySQLRepository) InitSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := r.ensureColumn(ctx, "match_results", "server_id", "VARCHAR(80) NOT NULL DEFAULT '' AFTER room_id"); err != nil {
+		return err
+	}
+	if err := r.ensureColumn(ctx, "match_results", "server_addr", "VARCHAR(255) NOT NULL DEFAULT '' AFTER server_id"); err != nil {
+		return err
+	}
+	if err := r.ensureIndex(ctx, "match_results", "idx_match_results_server_id", "server_id"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r *MySQLRepository) ensureColumn(ctx context.Context, tableName, columnName, definition string) error {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = ?
+  AND COLUMN_NAME = ?
+`, tableName, columnName).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition))
+	return err
+}
+
+func (r *MySQLRepository) ensureIndex(ctx context.Context, tableName, indexName, columnName string) error {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM INFORMATION_SCHEMA.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = ?
+  AND INDEX_NAME = ?
+`, tableName, indexName).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = r.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD INDEX %s (%s)", tableName, indexName, columnName))
+	return err
 }
 
 func (r *MySQLRepository) UpsertPlayerScore(ctx context.Context, playerID string, score float64) error {
@@ -184,27 +234,29 @@ func (r *MySQLRepository) UpsertMatchResult(ctx context.Context, result MatchRes
 	}
 
 	_, err = r.db.ExecContext(ctx, `
-INSERT INTO match_results (match_id, room_id, match_mode, player_ids, status, created_at_ms)
-VALUES (?, ?, ?, CAST(? AS JSON), ?, ?)
+INSERT INTO match_results (match_id, room_id, server_id, server_addr, match_mode, player_ids, status, created_at_ms)
+VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
 ON DUPLICATE KEY UPDATE
   room_id = VALUES(room_id),
+  server_id = VALUES(server_id),
+  server_addr = VALUES(server_addr),
   match_mode = VALUES(match_mode),
   player_ids = VALUES(player_ids),
   status = VALUES(status)
-`, result.MatchID, result.RoomID, result.MatchMode, string(playersJSON), result.Status, result.CreatedAt)
+`, result.MatchID, result.RoomID, result.ServerID, result.ServerAddr, result.MatchMode, string(playersJSON), result.Status, result.CreatedAt)
 	return err
 }
 
 func (r *MySQLRepository) GetMatchResult(ctx context.Context, matchID string) (*MatchResult, error) {
 	row := r.db.QueryRowContext(ctx, `
-SELECT match_id, room_id, match_mode, player_ids, status, created_at_ms
+SELECT match_id, room_id, server_id, server_addr, match_mode, player_ids, status, created_at_ms
 FROM match_results
 WHERE match_id = ?
 `, matchID)
 
 	var result MatchResult
 	var playersJSON string
-	if err := row.Scan(&result.MatchID, &result.RoomID, &result.MatchMode, &playersJSON, &result.Status, &result.CreatedAt); err != nil {
+	if err := row.Scan(&result.MatchID, &result.RoomID, &result.ServerID, &result.ServerAddr, &result.MatchMode, &playersJSON, &result.Status, &result.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrResultNotFound
 		}

@@ -28,9 +28,10 @@ type CreateMatchTicketRequest struct {
 }
 
 type MatchService struct {
-	playerRepo    *repository.PlayerRepository
-	mysqlRepo     *repository.MySQLRepository
-	roomAllocator RoomAllocator
+	playerRepo     *repository.PlayerRepository
+	mysqlRepo      *repository.MySQLRepository
+	roomServerRepo *repository.RoomServerRepository
+	roomAllocator  RoomAllocator
 }
 
 func NewMatchService(playerRepo *repository.PlayerRepository) *MatchService {
@@ -50,6 +51,34 @@ func (s *MatchService) SetRoomAllocator(roomAllocator RoomAllocator) {
 		return
 	}
 	s.roomAllocator = roomAllocator
+}
+
+func (s *MatchService) SetRoomServerRepository(roomServerRepo *repository.RoomServerRepository) {
+	s.roomServerRepo = roomServerRepo
+	if roomServerRepo != nil {
+		s.roomAllocator = NewRedisRoomAllocator(roomServerRepo)
+	}
+}
+
+func (s *MatchService) RegisterGameServer(ctx context.Context, server repository.GameServer) (*repository.GameServer, error) {
+	if s.roomServerRepo == nil {
+		return nil, errors.New("room server registry is not enabled")
+	}
+	return s.roomServerRepo.RegisterGameServer(ctx, server)
+}
+
+func (s *MatchService) HeartbeatGameServer(ctx context.Context, serverID string, heartbeat repository.GameServerHeartbeat) (*repository.GameServer, error) {
+	if s.roomServerRepo == nil {
+		return nil, errors.New("room server registry is not enabled")
+	}
+	return s.roomServerRepo.HeartbeatGameServer(ctx, serverID, heartbeat)
+}
+
+func (s *MatchService) ListGameServers(ctx context.Context, matchMode string) ([]repository.GameServer, error) {
+	if s.roomServerRepo == nil {
+		return nil, errors.New("room server registry is not enabled")
+	}
+	return s.roomServerRepo.ListGameServers(ctx, matchMode)
 }
 
 func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRequest) (*repository.MatchTicket, error) {
@@ -89,7 +118,11 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 
 	_, err := s.TryCompleteMatch(ctx, req.MMRScore, req.MatchMode)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, repository.ErrNoAvailableRoomServer) {
+			log.Printf("[CoreRank] room server allocation unavailable; ticket stays queued: %v", err)
+		} else {
+			return nil, err
+		}
 	}
 
 	latest, err := s.playerRepo.GetMatchTicket(ctx, ticket.TicketID)
@@ -174,10 +207,14 @@ func (s *MatchService) TryCompleteMatch(ctx context.Context, centerScore int64, 
 	if err != nil {
 		return nil, err
 	}
-	return s.CompletePickedPlayers(ctx, players, matchMode)
+	return s.completePickedPlayers(ctx, players, matchMode, true)
 }
 
 func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []string, matchMode string) (*repository.MatchResult, error) {
+	return s.completePickedPlayers(ctx, players, matchMode, true)
+}
+
+func (s *MatchService) completePickedPlayers(ctx context.Context, players []string, matchMode string, requeueOnFailure bool) (*repository.MatchResult, error) {
 	if len(players) < matchPlayersPerRoom {
 		return nil, nil
 	}
@@ -186,21 +223,57 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 	}
 
 	now := time.Now().UnixMilli()
-	roomID := s.roomAllocator.AllocateRoom(ctx, RoomAllocationRequest{
+	matchID := newID("match")
+	assignment, err := s.roomAllocator.AllocateRoom(ctx, RoomAllocationRequest{
+		MatchID:   matchID,
 		MatchMode: matchMode,
 		PlayerIDs: append([]string(nil), players...),
 	})
+	if err != nil {
+		metrics.RecordRoomAssignment(matchMode, "failed")
+		metrics.RecordRoomAssignmentFailure(matchMode, "allocator")
+		if requeueOnFailure {
+			if requeueErr := s.playerRepo.RequeueMatchTicketPlayers(ctx, players); requeueErr != nil {
+				return nil, errors.Join(err, requeueErr)
+			}
+			s.refreshQueuedTicketGauge(ctx)
+		}
+		return nil, err
+	}
+	if assignment.MatchID == "" {
+		assignment.MatchID = matchID
+	}
+	if assignment.RoomID == "" {
+		assignment.RoomID = newID("room")
+	}
 
 	result := repository.MatchResult{
-		MatchID:   newID("match"),
-		RoomID:    roomID,
-		MatchMode: matchMode,
-		Status:    repository.MatchStatusMatched,
-		CreatedAt: now,
+		MatchID:    assignment.MatchID,
+		RoomID:     assignment.RoomID,
+		ServerID:   assignment.ServerID,
+		ServerAddr: assignment.ServerAddr,
+		MatchMode:  matchMode,
+		Status:     repository.MatchStatusMatched,
+		CreatedAt:  now,
 	}
 	completed, tickets, err := s.playerRepo.CompleteMatch(ctx, players, result)
 	if err != nil || completed == nil {
-		return completed, err
+		releaseErr := s.roomAllocator.ReleaseRoom(ctx, assignment)
+		var requeueErr error
+		if requeueOnFailure {
+			requeueErr = s.playerRepo.RequeueMatchTicketPlayers(ctx, players)
+			s.refreshQueuedTicketGauge(ctx)
+		}
+		return completed, errors.Join(err, releaseErr, requeueErr)
+	}
+	assignment.MatchID = completed.MatchID
+	assignment.RoomID = completed.RoomID
+	assignment.MatchMode = completed.MatchMode
+	assignment.PlayerIDs = append([]string(nil), completed.PlayerIDs...)
+	assignment.Status = repository.RoomAssignmentStatusAssigned
+	assignment.CreatedAt = completed.CreatedAt
+	if err := s.roomAllocator.SaveAssignment(ctx, assignment); err != nil {
+		log.Printf("[CoreRank] room assignment persist failed; returning match result: %v", err)
 	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchResult(ctx, *completed); err != nil {
@@ -213,6 +286,10 @@ func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []stri
 		}
 	}
 	metrics.RecordMatchSuccess(matchMode)
+	metrics.RecordRoomAssignment(matchMode, repository.RoomAssignmentStatusAssigned)
+	if assignment.ServerID != "" {
+		metrics.SetRoomServerLoad(assignment.ServerID, matchMode, assignment.CurrentLoad)
+	}
 	metrics.RecordMatchTicketEvents(matchMode, repository.MatchStatusMatched, len(tickets))
 	for _, ticket := range tickets {
 		metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)

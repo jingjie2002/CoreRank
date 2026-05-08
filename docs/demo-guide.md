@@ -7,6 +7,7 @@
 | 角色 | 在真实公司里 | 你本机演示时 |
 |---|---|---|
 | CoreRank Server | 跑在 Linux 服务器或容器里 | 跑在你的 Windows 终端里 |
+| Room/Battle Server | 独立房间服或战斗服进程 | 用 REST 注册一条 demo server 资源记录 |
 | Redis | 独立缓存/状态服务 | 本机 Redis 或 Docker Redis |
 | MySQL | 独立数据库 | 本机 MySQL 测试库或 Docker MySQL |
 | Robot | 压测客户端 | 本机另一个终端 |
@@ -52,10 +53,11 @@ python scripts\rest_demo.py
 这一步会自动构建并启动临时服务端，然后演示：
 
 - 排行榜写入和查询。
+- 注册一台 demo room server。
 - 匹配票据创建。
-- 两个玩家匹配成功并生成 `match_id`、`room_id`。
+- 两个玩家匹配成功并生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。
 - 短等待票据变成 `timeout`。
-- `/metrics` 中存在匹配业务指标。
+- `/metrics` 中存在匹配业务指标和房间分配指标。
 
 ### 4. 跑 Robot 压测
 
@@ -112,7 +114,7 @@ go run ./cmd/robot
 - 不要现场临时装 MySQL 或 Docker。
 - 不要现场讲 Redis Cluster 已落地。
 - 不要把本机 TPS 说成生产 TPS。
-- 不要说已经有真实房间服/战斗服调度。
+- 不要说已经有真实 TCP/WebSocket 房间服/战斗服进程；当前完成的是 Redis-backed server registry 和本地可验证分配链路。
 - Grafana 只能说明“本地观测演示栈”，不能说明生产监控已落地。
 
 面试演示的重点不是把云服务器搭得多复杂，而是你能稳定复现、能解释架构边界、能讲清楚每个测试证明了什么。

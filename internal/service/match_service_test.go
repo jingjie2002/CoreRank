@@ -92,8 +92,39 @@ type fixedRoomAllocator struct {
 	roomID string
 }
 
-func (a fixedRoomAllocator) AllocateRoom(context.Context, RoomAllocationRequest) string {
-	return a.roomID
+func (a fixedRoomAllocator) AllocateRoom(_ context.Context, req RoomAllocationRequest) (repository.RoomAssignment, error) {
+	return repository.RoomAssignment{
+		MatchID:   req.MatchID,
+		RoomID:    a.roomID,
+		MatchMode: req.MatchMode,
+		PlayerIDs: append([]string(nil), req.PlayerIDs...),
+		Status:    repository.RoomAssignmentStatusAssigned,
+		CreatedAt: time.Now().UnixMilli(),
+	}, nil
+}
+
+func (fixedRoomAllocator) ReleaseRoom(context.Context, repository.RoomAssignment) error {
+	return nil
+}
+
+func (fixedRoomAllocator) SaveAssignment(context.Context, repository.RoomAssignment) error {
+	return nil
+}
+
+type failingRoomAllocator struct {
+	err error
+}
+
+func (a failingRoomAllocator) AllocateRoom(context.Context, RoomAllocationRequest) (repository.RoomAssignment, error) {
+	return repository.RoomAssignment{}, a.err
+}
+
+func (failingRoomAllocator) ReleaseRoom(context.Context, repository.RoomAssignment) error {
+	return nil
+}
+
+func (failingRoomAllocator) SaveAssignment(context.Context, repository.RoomAssignment) error {
+	return nil
 }
 
 func TestMatchTicketsCreateMatchedResult(t *testing.T) {
@@ -180,6 +211,62 @@ func TestMatchServiceUsesRoomAllocator(t *testing.T) {
 	}
 	if result.RoomID != "room_fixed" {
 		t.Fatalf("result should use fixed room id, got %#v", result)
+	}
+}
+
+func TestMatchServiceRequeuesTicketsWhenRoomAllocationFails(t *testing.T) {
+	matchService, cleanup := newTestMatchService(t)
+	defer cleanup()
+	matchService.SetRoomAllocator(failingRoomAllocator{err: repository.ErrNoAvailableRoomServer})
+
+	ctx := context.Background()
+	first, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "room-fail-p1",
+		MMRScore: 1200,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create first ticket: %v", err)
+	}
+	if first.Status != repository.MatchStatusQueued {
+		t.Fatalf("first ticket should wait, got %s", first.Status)
+	}
+
+	second, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "room-fail-p2",
+		MMRScore: 1210,
+		MaxWait:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("room allocation failure should keep ticket queued instead of failing request: %v", err)
+	}
+	if second.Status != repository.MatchStatusQueued || second.MatchID != "" {
+		t.Fatalf("second ticket should stay queued when no room server is available, got %#v", second)
+	}
+
+	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	if err != nil {
+		t.Fatalf("count queued tickets: %v", err)
+	}
+	if queued != 2 {
+		t.Fatalf("expected both players to be requeued, got %d", queued)
+	}
+
+	matchService.SetRoomAllocator(fixedRoomAllocator{roomID: "room_recovered"})
+	result, err := matchService.TryCompleteMatch(ctx, 1205, defaultMatchMode)
+	if err != nil {
+		t.Fatalf("complete requeued tickets: %v", err)
+	}
+	if result == nil || result.RoomID != "room_recovered" {
+		t.Fatalf("expected requeued tickets to complete after allocator recovers, got %#v", result)
+	}
+
+	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	if err != nil {
+		t.Fatalf("count queued tickets after recovery: %v", err)
+	}
+	if queued != 0 {
+		t.Fatalf("expected ticket pool to be empty after recovery, got %d", queued)
 	}
 }
 

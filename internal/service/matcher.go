@@ -286,7 +286,7 @@ func (w *MatchWorker) scanAllBuckets(ctx context.Context) {
 // - 初始范围小保证公平，等待过久则放宽限制
 func (w *MatchWorker) matchInBucket(ctx context.Context, bucket *ScoreBucket) {
 	// 调用 Repository 层，原子化查询并提取玩家
-	players, err := w.playerRepo.SearchAndPickPlayers(
+	players, err := w.playerRepo.SearchAndPickTicketPlayers(
 		ctx,
 		bucket.CurrentMinScore,
 		bucket.CurrentMaxScore,

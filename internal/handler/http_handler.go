@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +20,79 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("POST /api/servers", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ServerID    string `json:"server_id"`
+			ServerType  string `json:"server_type"`
+			Addr        string `json:"addr"`
+			Region      string `json:"region"`
+			MatchMode   string `json:"match_mode"`
+			Capacity    int64  `json:"capacity"`
+			CurrentLoad int64  `json:"current_load"`
+			Status      string `json:"status"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		server, err := matchService.RegisterGameServer(r.Context(), repository.GameServer{
+			ServerID:    req.ServerID,
+			ServerType:  req.ServerType,
+			Addr:        req.Addr,
+			Region:      req.Region,
+			MatchMode:   req.MatchMode,
+			Capacity:    req.Capacity,
+			CurrentLoad: req.CurrentLoad,
+			Status:      req.Status,
+		})
+		if err != nil {
+			writeRoomServerError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, server)
+	})
+
+	mux.HandleFunc("GET /api/servers", func(w http.ResponseWriter, r *http.Request) {
+		servers, err := matchService.ListGameServers(r.Context(), r.URL.Query().Get("match_mode"))
+		if err != nil {
+			writeRoomServerError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, servers)
+	})
+
+	mux.HandleFunc("POST /api/servers/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/servers/")
+		if !strings.HasSuffix(path, "/heartbeat") {
+			writeError(w, http.StatusNotFound, errors.New("server heartbeat endpoint not found"))
+			return
+		}
+		serverID := strings.Trim(strings.TrimSuffix(path, "/heartbeat"), "/")
+		if serverID == "" || strings.Contains(serverID, "/") {
+			writeError(w, http.StatusBadRequest, errors.New("server_id is required"))
+			return
+		}
+
+		var req struct {
+			Status      string `json:"status"`
+			CurrentLoad *int64 `json:"current_load"`
+		}
+		if err := readOptionalJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		server, err := matchService.HeartbeatGameServer(r.Context(), serverID, repository.GameServerHeartbeat{
+			Status:      req.Status,
+			CurrentLoad: req.CurrentLoad,
+		})
+		if err != nil {
+			writeRoomServerError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, server)
 	})
 
 	mux.HandleFunc("POST /api/rank/score", func(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +253,19 @@ func readJSON(r *http.Request, target any) error {
 	return decoder.Decode(target)
 }
 
+func readOptionalJSON(r *http.Request, target any) error {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -196,6 +283,17 @@ func writeMatchError(w http.ResponseWriter, err error) {
 	case errors.Is(err, repository.ErrTicketNotFound), errors.Is(err, repository.ErrResultNotFound):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, repository.ErrTicketNotQueued):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, http.StatusBadRequest, err)
+	}
+}
+
+func writeRoomServerError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, repository.ErrGameServerNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, repository.ErrNoAvailableRoomServer):
 		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusBadRequest, err)

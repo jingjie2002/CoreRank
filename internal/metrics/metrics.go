@@ -90,6 +90,36 @@ var QueuedTicketsGauge = promauto.NewGaugeVec(
 	[]string{"match_mode"},
 )
 
+var RoomAssignmentCounter = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: "corerank",
+		Subsystem: "room",
+		Name:      "assignment_total",
+		Help:      "Room server assignment attempts grouped by match mode and status.",
+	},
+	[]string{"match_mode", "status"},
+)
+
+var RoomAssignmentFailureCounter = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: "corerank",
+		Subsystem: "room",
+		Name:      "assignment_failures_total",
+		Help:      "Room server assignment failures grouped by match mode and reason.",
+	},
+	[]string{"match_mode", "reason"},
+)
+
+var RoomServerLoadGauge = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Namespace: "corerank",
+		Subsystem: "room",
+		Name:      "server_load",
+		Help:      "Current reserved player slots on a room or battle server.",
+	},
+	[]string{"server_id", "match_mode"},
+)
+
 // ============================================================================
 // 排行榜服务指标
 // ============================================================================
@@ -206,6 +236,24 @@ func SetQueuedTickets(matchMode string, count int64) {
 		count = 0
 	}
 	QueuedTicketsGauge.WithLabelValues(normalizeLabel(matchMode)).Set(float64(count))
+}
+
+func RecordRoomAssignment(matchMode string, status string) {
+	RoomAssignmentCounter.WithLabelValues(normalizeLabel(matchMode), normalizeLabel(status)).Inc()
+}
+
+func RecordRoomAssignmentFailure(matchMode string, reason string) {
+	RoomAssignmentFailureCounter.WithLabelValues(normalizeLabel(matchMode), normalizeLabel(reason)).Inc()
+}
+
+func SetRoomServerLoad(serverID string, matchMode string, load int64) {
+	if serverID == "" {
+		return
+	}
+	if load < 0 {
+		load = 0
+	}
+	RoomServerLoadGauge.WithLabelValues(serverID, normalizeLabel(matchMode)).Set(float64(load))
 }
 
 // RecordRequest 记录 gRPC 请求

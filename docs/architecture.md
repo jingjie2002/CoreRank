@@ -28,9 +28,11 @@ graph TB
 
     RankService --> RedisRepo["PlayerRepository"]
     MatchService --> RedisRepo
+    MatchService --> RoomServerRepo["RoomServerRepository"]
     MatchWorker["MatchWorker"] --> MatchService
 
     RedisRepo --> Redis[("Redis")]
+    RoomServerRepo --> Redis
     RankService --> MySQL[("MySQL 可选持久化")]
     MatchService --> MySQL
 ```
@@ -43,7 +45,7 @@ graph TB
 | `cmd/robot` | gRPC 压测工具 |
 | `api/proto` | gRPC Protobuf 协议 |
 | `internal/handler` | RESTful 和 gRPC handler |
-| `internal/service` | 排行榜、匹配生命周期、Worker 和房间分配抽象 |
+| `internal/service` | 排行榜、匹配生命周期、Worker 和房间资源分配 |
 | `internal/repository` | Redis、Lua 脚本、MySQL 表结构和仓库实现 |
 | `internal/metrics` | Prometheus 指标定义 |
 | `pkg/redis` | Redis 客户端初始化 |
@@ -56,7 +58,7 @@ graph TB
 
 1. 读取环境变量。
 2. 初始化 Redis 客户端。
-3. 初始化 `PlayerRepository`、`RankService`、`MatchService`。
+3. 初始化 `PlayerRepository`、`RoomServerRepository`、`RankService`、`MatchService`。
 4. 如果配置了 MySQL DSN，则初始化 MySQL repository。
 5. 启动匹配 Worker。
 6. 启动 gRPC server。
@@ -113,13 +115,17 @@ CreateMatchTicket / POST /api/match/tickets
 ```text
 TryCompleteMatch
   -> Redis Lua 原子摘取候选玩家
-  -> RoomAllocator 生成逻辑 room_id
+  -> RoomAllocator 从 Redis server registry 选择可用 server
+  -> Redis Lua 原子预留 server capacity
   -> Redis HASH match:result:{match_id}
+  -> Redis HASH room:assignment:{match_id}
   -> 更新票据为 matched
   -> 删除 player_ticket 防重复 key
   -> 删除超时索引
   -> 可选 MySQL match_results / match_tickets upsert
 ```
+
+如果没有可用 server，已摘取玩家会重新放回 `match:ticket_pool`，不会静默丢失。
 
 ### 取消票据
 
@@ -155,6 +161,10 @@ MatchWorker
 | `match:ticket:{ticket_id}` | Hash | 匹配票据状态 |
 | `match:result:{match_id}` | Hash | 匹配结果 |
 | `match:player_ticket:{player_id}` | String | 防止同一玩家重复 queued |
+| `server:info:{server_id}` | Hash | 房间服/战斗服资源元数据 |
+| `server:heartbeat` | ZSet | server 心跳时间索引 |
+| `server:load:{match_mode}` | ZSet | 按匹配模式记录 server 负载 |
+| `room:assignment:{match_id}` | Hash | 匹配结果到 server 的分配记录 |
 
 ## 8. MySQL 表结构
 
@@ -187,6 +197,9 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 - 票据事件数量。
 - 票据生命周期耗时。
 - queued 票据数量。
+- 房间资源分配成功/失败数量。
+- 房间资源分配失败原因。
+- server 当前预留玩家槽位数。
 
 当前边界：
 
@@ -216,12 +229,11 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 ## 11. 当前未实现边界
 
-- 真实房间服 / 战斗服资源分配。
+- 真实 TCP/WebSocket 房间服或战斗服进程。
 - 匹配结果主动通知。
 - JWT / 账号鉴权。
 - Redis Cluster。
 - 多实例高可用。
-- Grafana dashboard。
 - Linux 云服务器部署验证。
 - 生产级 P95/P99。
 
@@ -229,7 +241,7 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 优先级建议：
 
-1. 验证 Docker Compose + MySQL + Prometheus + Grafana 本地演示栈。
-2. 记录 Prometheus/Grafana 查询到的本地 P95/P99。
-3. 做真实房间服 / 战斗服分配前，先设计资源状态、失败回滚和接口契约。
-4. 再考虑 Linux 云服务器部署验证。
+1. 做 Linux 云服务器或 Linux 容器部署验证。
+2. 记录 REST demo、Prometheus/Grafana 查询到的本地或云端 P95/P99。
+3. 如继续扩展房间能力，先设计真实 TCP/WebSocket 房间服进程和 CoreRank 的接口契约。
+4. 再考虑 Redis Cluster、多实例高可用和生产级服务发现。

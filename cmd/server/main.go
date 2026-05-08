@@ -106,11 +106,15 @@ func main() {
 	playerRepo := repository.NewPlayerRepository(client.GetRawClient())
 	fmt.Printf("[%s] ✅ PlayerRepository 初始化完成\n", appName)
 
+	roomServerRepo := repository.NewRoomServerRepository(client.GetRawClient())
+	fmt.Printf("[%s] ✅ RoomServerRepository 初始化完成\n", appName)
+
 	// Service 层
 	rankService := service.NewRankService(playerRepo)
 	fmt.Printf("[%s] ✅ RankService 初始化完成\n", appName)
 
 	matchService := service.NewMatchService(playerRepo)
+	matchService.SetRoomServerRepository(roomServerRepo)
 	fmt.Printf("[%s] ✅ MatchService 初始化完成\n", appName)
 
 	mysqlRequired := envBool("CORERANK_MYSQL_REQUIRED")
