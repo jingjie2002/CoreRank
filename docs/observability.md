@@ -91,6 +91,12 @@ Dashboards -> CoreRank -> CoreRank Overview
 - queued 票据数量。
 - 匹配生命周期 P95/P99。
 
+本地已验证：
+
+- Grafana datasource provisioning 能自动创建 `Prometheus` 数据源。
+- Grafana dashboard provisioning 能自动创建 `CoreRank Overview` dashboard。
+- Prometheus `corerank-server` target 能抓取 `host.docker.internal:9091/metrics`，状态为 `up`。
+
 ## 6. PromQL 查询
 
 gRPC 请求速率：
@@ -110,6 +116,8 @@ gRPC P99 延迟：
 ```promql
 histogram_quantile(0.99, sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
 ```
+
+短窗口本机演示时，建议先发送 1 次预热 gRPC 请求，等待 Prometheus 抓取一次初始样本，再运行 Robot 压测。否则 histogram label 第一次出现时可能已经带着完整请求数，`rate()` 在短窗口内会得到 0 或 `NaN`。
 
 匹配票据事件：
 

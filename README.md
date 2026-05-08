@@ -32,6 +32,8 @@ Go 游戏匹配与排行榜中台
 - 积分桶扫描与滑动窗口匹配 Worker
 - Prometheus `/metrics` 指标端点：gRPC 请求、延迟、匹配成功、取消、超时、票据终态耗时、queued 数量
 - RESTful API 与 Prometheus metrics server 支持退出信号下优雅关闭
+- Docker Compose 本地观测栈：Redis、MySQL、Prometheus、Grafana
+- Grafana `CoreRank Overview` dashboard 与 Prometheus datasource provisioning
 - gRPC Robot 压测程序，支持通过环境变量调整目标地址、并发数和请求数
 - RESTful 演示脚本
 - Redis 关键路径测试
@@ -43,7 +45,7 @@ Go 游戏匹配与排行榜中台
 - 真实房间服或战斗服调度
 - JWT 或账号鉴权
 - Redis Cluster 实测部署
-- P95/P99 延迟采集
+- 生产级 P95/P99 性能承诺
 - 生产级高可用部署
 
 这些内容是后续优化方向，未实现前不应写进简历正文。
@@ -218,9 +220,11 @@ python scripts\rest_demo.py
 - MySQL 故障时默认降级到 Redis 主链路，避免可选持久化层中断核心请求。
 - Prometheus 指标暴露。
 - Prometheus 已记录匹配成功、取消、超时、票据生命周期耗时和 queued 数量等业务指标。
+- 本地 Docker Compose 观测栈已验证 Prometheus 抓取和 Grafana dashboard provisioning。
 - RESTful API 和 Prometheus metrics server 支持优雅关闭。
 - Robot 压测脚本和 RESTful 演示脚本。
 - 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
+- 本机 Docker + MySQL + Prometheus 小规模观测验证采集到 `UpdateScore` P95/P99，但只能作为本机演示数据。
 
 不建议写：
 
@@ -228,7 +232,7 @@ python scripts\rest_demo.py
 - 已支持 Redis Cluster。
 - 完整游戏服务器。
 - 完整房间/战斗服调度。
-- P99 延迟数据。
+- 生产级 P99 延迟承诺。
 
 ## 后续优化路线
 
@@ -237,7 +241,7 @@ python scripts\rest_demo.py
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
 2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；真实房间服分配待补。
 3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；基础故障降级已完成，后续继续补更细的业务查询和索引说明。
-4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标、本机压测记录、API 文档和架构文档已补；Grafana/服务器部署验证仍待补。
+4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标、本机压测记录、API 文档、架构文档、本地 Grafana dashboard 和 Prometheus P95/P99 查询记录已补；Linux 服务器部署验证仍待补。
 
 ## 文档
 

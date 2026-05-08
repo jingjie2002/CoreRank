@@ -8,14 +8,14 @@
 |---|---|---|
 | CoreRank Server | 跑在 Linux 服务器或容器里 | 跑在你的 Windows 终端里 |
 | Redis | 独立缓存/状态服务 | 本机 Redis 或 Docker Redis |
-| MySQL | 独立数据库 | 本机 MySQL 测试库 |
+| MySQL | 独立数据库 | 本机 MySQL 测试库或 Docker MySQL |
 | Robot | 压测客户端 | 本机另一个终端 |
 | Prometheus | 定时抓 `/metrics` | 你可以直接浏览器打开 `/metrics` |
 | Grafana | 把 Prometheus 指标画成图 | 你可以打开 `http://localhost:3000` |
 
 ## 最稳的本地验收顺序
 
-如果要演示 Grafana，请先启动 Docker Desktop，再启动本地观测栈。只跑 REST demo 和 Go 测试时，不需要 Grafana。
+如果要演示 Grafana，请先启动 Docker Desktop，再启动本地观测栈。当前本地观测栈已经验证过 Redis、MySQL、Prometheus 和 Grafana 能一起运行。只跑 REST demo 和 Go 测试时，不需要 Grafana。
 
 ### 1. 先确认代码和 CI
 

@@ -17,7 +17,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 持久化玩家、匹配票据和对局结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
-注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描和 CI 已有可验证基线；真实房间服分配、P95/P99 和生产高可用仍不能写成已完成。
+注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描、CI 和本地 Prometheus/Grafana 观测栈已有可验证基线；真实房间服分配、Linux 服务器部署和生产高可用仍不能写成已完成。
 
 ## 2. 中台到底跑在哪里
 
@@ -72,7 +72,7 @@ CoreRank 对外通常有两类入口：
   - 不写“完全消除竞态条件”。
   - 不写“Redis Cluster 已落地”。
   - 不写“ACID 特性”。
-  - 不写未采集的 P99。
+  - 不写生产级 P99 承诺。
   - 性能数据必须注明本机环境、命令和边界。
 - 新增 GitHub Actions：
   - `go test ./...`
@@ -183,7 +183,7 @@ rank_snapshots
 
 验收标准：
 
-- Docker Compose 能拉起 Redis + MySQL。当前 Docker 本机未验证，GitHub Actions 已使用 MySQL service 验证。
+- Docker Compose 能拉起 Redis + MySQL。当前已在本机验证 Redis、MySQL、Prometheus 和 Grafana 运行。
 - 有初始化 SQL 或迁移脚本。已完成 `internal/repository/mysql_schema.sql`。
 - 匹配票据、超时状态和匹配结果能写入 MySQL。已完成基础覆盖。
 - 有 MySQL repository 测试或集成测试。已完成。
@@ -203,8 +203,8 @@ rank_snapshots
 - `docs/benchmark.md` 已补本机 Robot 压测记录。
 - `docs/demo-guide.md` 已补本地测试与面试演示指南。
 - `docs/interview-notes.md` 已整理。
-- Docker Compose 已补 MySQL service、Grafana datasource provisioning 和基础 dashboard；仍需本机实际验证。
-- 服务器部署验证和 P95/P99 真实采集仍未完成。
+- Docker Compose 已补 MySQL service、Grafana datasource provisioning 和基础 dashboard，并完成本机运行验证。
+- 本机 Prometheus 已采集 `UpdateScore` P95/P99 短窗口结果；服务器部署验证仍未完成。
 
 要做：
 
@@ -221,6 +221,7 @@ rank_snapshots
 - 补 `docs/demo-guide.md`。已补本地测试与面试演示指南。
 - 整理 `docs/interview-notes.md`。
 - 补 `docs/observability.md`。已补本地观测栈说明。
+- 本机验证 Grafana dashboard 和 Prometheus P95/P99 查询。已补，见 `docs/benchmark.md`。
 
 验收标准：
 
@@ -228,6 +229,7 @@ rank_snapshots
 - 压测报告包含环境、命令、结果和限制。已补本机记录。
 - README 明确区分已实现和未实现。
 - Prometheus 能看到核心指标。已补 gRPC 和匹配业务指标。
+- Grafana 本地 dashboard 能打开并读取 Prometheus datasource。已验证 provisioning 和 API。
 
 ## 4. 测试策略总览
 
@@ -395,7 +397,7 @@ go test ./... -tags=integration
 - 失败请求数。
 - 成功率。
 - 平均延迟。
-- P95/P99，如果后续采集了才写。
+- P95/P99，只有通过真实采集后才写；当前已有本机 Prometheus 短窗口记录，仍不能写成生产性能承诺。
 - 测试机器环境。
 - Redis/MySQL 是否本机。
 
@@ -459,8 +461,9 @@ go test ./... -tags=integration
 2. 执行 `go test ./...`。
 3. 执行 REST demo。
 4. 展示一次 Robot 压测结果。
-5. 展示 Redis Lua 脚本。
-6. 展示匹配生命周期或 MySQL 表设计文档。
+5. 展示 Prometheus 或 Grafana 本地观测结果。
+6. 展示 Redis Lua 脚本。
+7. 展示匹配生命周期或 MySQL 表设计文档。
 
 不要现场演示过于复杂的部署。面试官更关心你是否讲得清楚，而不是你现场搭云服务器。
 
@@ -499,7 +502,7 @@ go test ./... -tags=integration
 - 不直接改简历写未实现功能。
 - 不宣称 Redis Cluster。
 - 不宣称生产级高并发。
-- 不写未采集的 P99。
+- 不写生产级 P99 承诺。
 - 不做 Kubernetes。
 - 不做复杂微服务拆分。
 

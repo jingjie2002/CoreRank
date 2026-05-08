@@ -191,8 +191,8 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 当前边界：
 
 - 已有 Prometheus 抓取配置。
-- Grafana 容器配置存在，但 dashboard 尚未完成验证。
-- P95/P99 需要后续通过 histogram 和 PromQL 真实计算后才能写入文档或简历。
+- Grafana dashboard provisioning 已完成本地验证。
+- 已有本机 Prometheus P95/P99 短窗口查询记录；仍不能写成生产性能承诺。
 
 ## 10. 部署形态
 

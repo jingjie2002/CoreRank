@@ -229,6 +229,13 @@ http://localhost:3000
 Dashboards -> CoreRank -> CoreRank Overview
 ```
 
+当前本地已验证：
+
+- Docker Compose 能启动 Redis、MySQL、Prometheus 和 Grafana。
+- Prometheus `corerank-server` target 为 `up`。
+- Grafana `Prometheus` datasource 和 `CoreRank Overview` dashboard 已通过 provisioning 创建。
+- 本机短窗口 Robot 流量已通过 Prometheus 查询到 `UpdateScore` P95/P99，记录见 `docs/benchmark.md`。
+
 更多 PromQL 查询见 `docs/observability.md`。
 
 关键指标名：
@@ -309,8 +316,10 @@ RESTful 和 gRPC 最小闭环已覆盖：
 - 成功率。
 - 平均延迟。
 - Redis/MySQL 是否本机或远程。
+- 本机 Prometheus P95/P99 短窗口查询记录。
 
-- P95/P99，只有通过 Prometheus histogram、Grafana dashboard 或专门压测工具真实采集后才能写。
+仍需补：
+
 - Linux 服务器环境下的压测记录。
 
 ## 10. 面试演示建议
@@ -320,9 +329,10 @@ RESTful 和 gRPC 最小闭环已覆盖：
 1. 打开 README，说明项目定位和未实现边界。
 2. 跑 `go test ./...`。
 3. 跑 `python scripts\rest_demo.py`。
-4. 展示 `internal/repository/lua_scripts.go`。
-5. 展示 Robot 压测记录 `docs/benchmark.md`。
-6. 展示 API 文档 `docs/api.md` 和架构文档 `docs/architecture.md`。
-7. 展示优化方案和后续 MySQL/匹配生命周期设计。
+4. 展示 Robot 压测记录 `docs/benchmark.md`。
+5. 展示 Prometheus 或 Grafana 本地观测结果。
+6. 展示 `internal/repository/lua_scripts.go`。
+7. 展示 API 文档 `docs/api.md` 和架构文档 `docs/architecture.md`。
+8. 展示优化方案和后续 MySQL/匹配生命周期设计。
 
 不要现场临时搭复杂环境。演示重点是稳定、可解释、边界清楚。

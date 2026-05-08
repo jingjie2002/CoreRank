@@ -27,6 +27,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 | MySQL | 已实现基础版 | 可选持久化玩家分数、匹配票据、匹配结果和榜单快照 |
 | MySQL 降级 | 已实现基础版 | 默认 MySQL 写入失败不阻断 Redis 主链路 |
 | Prometheus | 已实现基础版 | 暴露 gRPC、匹配成功、取消、超时、queued 数量等指标 |
+| Grafana | 已实现基础版 | Docker Compose 本地 dashboard 和 Prometheus datasource provisioning |
 | Robot 压测 | 已实现 | 支持配置并发数、请求数和目标 gRPC 地址 |
 | CI | 已实现 | GitHub Actions 执行测试、vet 和构建 |
 
@@ -40,8 +41,8 @@ CoreRank 游戏匹配与排行榜中台（Go）
 - Redis Cluster 实测部署。
 - 多实例高可用部署。
 - Linux 云服务器完整部署验证。
-- Grafana 仪表盘配置和演示。
-- 生产级 P95/P99 指标采集。
+- 生产级 Grafana 告警体系。
+- 生产级 P95/P99 长时压测。
 - 生产环境性能承诺。
 
 ## 技术路线
@@ -89,7 +90,6 @@ CoreRank 游戏匹配与排行榜中台（Go）
 
 仍待补充：
 
-- Docker Compose 中完整纳入 MySQL 本地验证链路。
 - 更完整的索引说明。
 - 强依赖模式自动化回归测试。
 
@@ -105,14 +105,16 @@ CoreRank 游戏匹配与排行榜中台（Go）
 - REST demo 自动检查 metrics。
 - 本机 Robot 压测记录。
 - 本地测试与面试演示指南。
-
-仍待补充：
-
 - API 文档。
 - 架构文档。
 - Grafana dashboard。
+- Docker Compose 本地观测栈运行验证。
+- Prometheus P95/P99 本机短窗口查询记录。
+
+仍待补充：
+
 - Linux 云服务器部署验证。
-- P95/P99 真实采集。
+- 生产级 P95/P99 长时压测。
 
 ## 架构概览
 
@@ -191,7 +193,7 @@ go run ./cmd/robot
 | `docs/benchmark.md` | 本机压测记录 |
 | `docs/demo-guide.md` | 本地测试与面试演示指南 |
 | `docs/interview-notes.md` | 面试讲法 |
-| `docker-compose.yml` | Redis、Prometheus、Grafana 本地配置 |
+| `docker-compose.yml` | Redis、MySQL、Prometheus、Grafana 本地配置 |
 | `prometheus.yml` | Prometheus 抓取配置 |
 
 ## 当前结论
