@@ -1,6 +1,6 @@
 # CoreRank API 文档
 
-本文档记录 CoreRank 当前已经实现的 RESTful、gRPC 和 metrics 接口。它只描述当前代码中真实存在的接口，不包含真实房间服调度、账号鉴权或匹配结果主动通知。
+本文档记录 CoreRank 当前已经实现的 RESTful、gRPC 和 metrics 接口。它只描述当前代码中真实存在的接口；当前已包含本地可验证的 Redis-backed 房间服/战斗服资源分配 v1，但不包含真实 TCP/WebSocket 战斗服进程、账号鉴权或匹配结果主动通知。
 
 ## 端口
 
@@ -36,6 +36,54 @@ GET /health
 ```json
 {
   "status": "ok"
+}
+```
+
+### 注册房间服/战斗服资源
+
+```http
+POST /api/servers
+```
+
+请求体：
+
+```json
+{
+  "server_id": "demo-room-1",
+  "server_type": "room",
+  "addr": "127.0.0.1:7001",
+  "region": "local",
+  "match_mode": "duel",
+  "capacity": 8,
+  "current_load": 0,
+  "status": "active"
+}
+```
+
+说明：
+
+- `server_type` 支持 `room` / `battle`，为空时默认 `room`。
+- `status` 支持 `active` / `draining` / `unhealthy`，只有 `active` 会被分配。
+- `capacity` 表示可预留的玩家槽位数，本地演示时可以把它理解成这台 server 能承载多少个匹配玩家。
+
+### 查询房间服/战斗服资源
+
+```http
+GET /api/servers?match_mode=duel
+```
+
+### 房间服/战斗服心跳
+
+```http
+POST /api/servers/{server_id}/heartbeat
+```
+
+请求体可为空，也可以更新状态或当前负载：
+
+```json
+{
+  "status": "active",
+  "current_load": 2
 }
 ```
 
@@ -203,7 +251,7 @@ POST /api/match/tickets
 
 - `match_mode` 为空时默认为 `default`。
 - `max_wait_ms` 小于等于 0 时使用服务端默认等待时间。
-- 当两个分数接近的 queued 票据满足匹配条件时，服务会生成 `match_id` 和逻辑 `room_id`。
+- 当两个分数接近的 queued 票据满足匹配条件且存在可用 server 时，服务会生成 `match_id`、逻辑 `room_id` 和 server 分配信息。
 
 ### 查询匹配票据
 
@@ -270,6 +318,8 @@ GET /api/match/results/{match_id}
 {
   "MatchID": "match_xxx",
   "RoomID": "room_xxx",
+  "ServerID": "demo-room-1",
+  "ServerAddr": "127.0.0.1:7001",
   "MatchMode": "default",
   "PlayerIDs": [
     "p1",
@@ -282,7 +332,8 @@ GET /api/match/results/{match_id}
 
 说明：
 
-- 当前 `RoomID` 是逻辑房间 ID，不是真实房间服或战斗服分配结果。
+- `RoomID` 是本次匹配生成的逻辑房间 ID。
+- `ServerID` / `ServerAddr` 是 Redis-backed server registry 选出的房间服/战斗服资源。
 - 当前只支持查询结果，不支持主动推送通知。
 
 ## gRPC API
@@ -408,6 +459,9 @@ GET /metrics
 | `corerank_matcher_ticket_events_total` | 匹配票据事件计数 |
 | `corerank_matcher_lifecycle_duration_seconds` | 票据从创建到终态的耗时 |
 | `corerank_matcher_queued_tickets` | 当前 queued 票据数量 |
+| `corerank_room_assignment_total` | 房间资源分配成功/失败计数 |
+| `corerank_room_assignment_failures_total` | 房间资源分配失败原因计数 |
+| `corerank_room_server_load` | 当前 server 预留玩家槽位数 |
 
 ## 错误响应
 
@@ -432,7 +486,7 @@ RESTful 错误响应格式：
 
 - 当前没有 JWT 或账号鉴权。
 - 当前没有匹配结果主动通知。
-- 当前没有真实房间服或战斗服调度。
-- 当前 `room_id` 是逻辑 ID。
+- 当前有本地可验证的 Redis-backed 房间资源分配 v1，但没有真实 TCP/WebSocket 房间服或战斗服进程。
+- 当前没有 Kubernetes 或生产级服务发现。
+- 当前 `room_id` 是逻辑 ID，`server_id/server_addr` 代表被选中的 server 资源记录。
 - 当前 RESTful 接口主要用于调试和演示，不是完整对外开放 API 网关。
-

@@ -17,7 +17,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 持久化玩家、匹配票据和对局结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
-注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描、CI 和本地 Prometheus/Grafana 观测栈已有可验证基线；真实房间服分配、Linux 服务器部署和生产高可用仍不能写成已完成。
+注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描、CI、本地 Prometheus/Grafana 观测栈和 Redis-backed 房间资源分配 v1 已有可验证基线；真实 TCP/WebSocket 房间服进程、Linux 服务器部署和生产高可用仍不能写成已完成。
 
 ## 2. 中台到底跑在哪里
 
@@ -94,13 +94,14 @@ CoreRank 对外通常有两类入口：
 
 - RESTful 和 gRPC 最小闭环已完成：创建票据、查询票据、取消票据、查询匹配结果。
 - Redis 已短期保存 `MatchTicket` 与 `MatchResult`。
-- 超时扫描和房间分配抽象已补；真实房间服分配仍待补。
+- 超时扫描、房间分配抽象和 Redis-backed 房间资源分配 v1 已补；真实 TCP/WebSocket 房间服进程仍待补。
 
 新增核心模型：
 
 ```text
 MatchTicket
 MatchResult
+GameServer
 RoomAssignment
 ```
 
@@ -121,6 +122,9 @@ POST   /api/match/tickets
 GET    /api/match/tickets/{ticket_id}
 DELETE /api/match/tickets/{ticket_id}
 GET    /api/match/results/{match_id}
+POST   /api/servers
+GET    /api/servers
+POST   /api/servers/{server_id}/heartbeat
 ```
 
 新增 gRPC 接口：
@@ -139,14 +143,19 @@ match:ticket:{ticket_id}       匹配票据状态
 match:player_ticket:{player_id} 防重复入队
 match:ticket_expiry            超时扫描索引
 match:result:{match_id}        短期匹配结果
+server:info:{server_id}        server 元数据
+server:heartbeat               server 心跳索引
+server:load:{match_mode}       server 负载索引
+room:assignment:{match_id}     房间分配结果
 ```
 
 验收标准：
 
 - 能演示创建票据、取消票据、匹配成功、查询匹配结果。
 - 重复入队会被拒绝或幂等处理。
-- 匹配成功后能生成 `match_id` 和 `room_id`。
-- 有测试覆盖重复入队、取消、匹配成功、超时。当前已补基础覆盖。
+- 匹配成功后能生成 `match_id`、`room_id`，并在 REST 查询结果中看到 `ServerID` / `ServerAddr`。
+- 无可用 server 时，已摘取玩家会回到 ticket pool，不会静默丢失。
+- 有测试覆盖重复入队、取消、匹配成功、超时、server 负载选择、不可用 server 过滤和分配失败回滚。
 
 ### 阶段 2：MySQL 持久化证据链
 
@@ -262,10 +271,11 @@ Service 单元测试
 
 ## 5. 当前项目现阶段怎么测
 
-当前 CoreRank 已有 MySQL 可选持久化和 RESTful/gRPC 匹配生命周期最小闭环，所以现阶段测试范围应该诚实限定在：
+当前 CoreRank 已有 MySQL 可选持久化、RESTful/gRPC 匹配生命周期最小闭环和 Redis-backed 房间资源分配 v1，所以现阶段测试范围应该诚实限定在：
 
 - Go 编译与静态检查。
 - Redis ZSet / Lua 测试。
+- Redis server registry / room assignment 测试。
 - RESTful 基础接口。
 - gRPC `UpdateScore` 压测。
 - MySQL repository 集成测试。
@@ -338,7 +348,9 @@ go vet ./...
 - 重复入队。
 - 取消匹配。
 - 超时处理。
-- 匹配成功生成 `match_id` 和 `room_id`。
+- 匹配成功生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。
+- 房间资源分配失败时玩家不会从 ticket pool 中消失。
+- 多个 server 时选择低负载 server，不可用 server 不会被选中。
 
 新增集成测试：
 
@@ -346,6 +358,7 @@ go vet ./...
 - 被匹配玩家不会再次出现在池中。
 - 取消后的玩家不会被匹配。
 - 查询匹配结果能返回 `matched` 状态。
+- 查询匹配结果能返回被分配的 server 信息。
 
 建议命令：
 
@@ -514,21 +527,19 @@ go test ./... -tags=integration
 
 ## 10. 最终执行建议
 
-下一轮如果进入实现，只做阶段 0：
+当前阶段 0-3 主线和 Redis-backed 房间资源分配 v1 已完成。下一步不要继续扩大成完整游戏服务器，建议只补“服务器部署/演示证据”：
 
 ```text
-可信展示基线
+Linux 服务端部署验证与演示材料
 ```
 
 具体目标：
 
-- 整理 Git 状态。
-- README 降风险。
-- 新增 CI。
-- 补验证文档。
-- 保证 GitHub 展示面和本地能力一致。
+- 在一台 Linux 云服务器或本地 Linux 容器环境跑起 CoreRank。
+- 记录启动命令、依赖、端口、REST demo 输出和 `/metrics` 抓取结果。
+- 明确写清这仍是 demo server registry，不是真实战斗服进程。
 
-阶段 0 完成后，再进入阶段 1。不要一口气做完所有阶段。
+这个阶段完成后，再考虑是否补真实 TCP/WebSocket 房间服进程。
 
 ## 11. 一句话回答测试问题
 

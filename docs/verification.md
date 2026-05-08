@@ -121,6 +121,8 @@ python scripts\rest_demo.py
 - `GET /api/rank/top`
 - `GET /api/rank/player/{player_id}`
 - `POST /api/match/pool`
+- `POST /api/servers`
+- `GET /api/servers`
 - `POST /api/match/tickets`
 - `GET /api/match/tickets/{ticket_id}`
 - `GET /api/match/results/{match_id}`
@@ -131,7 +133,8 @@ python scripts\rest_demo.py
 - TopN 顺序正确。
 - 个人名次正确。
 - 玩家可加入匹配池。
-- 两个分数接近的玩家创建票据后可生成 `match_id` 和 `room_id`。
+- 能注册 demo room server。
+- 两个分数接近的玩家创建票据后可生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。
 - 到期 queued 票据可被超时扫描推进为 `timeout`。
 - 可通过 `match_id` 查询匹配结果。
 
@@ -221,6 +224,8 @@ http://localhost:9091/metrics
 - 匹配票据生命周期事件计数。
 - 匹配票据从创建到终态的耗时直方图。
 - 当前 queued 票据数量。
+- 房间资源分配成功/失败计数。
+- 当前 server 预留玩家槽位数。
 
 Grafana 本地 dashboard：
 
@@ -279,12 +284,12 @@ RESTful 和 gRPC 最小闭环已覆盖：
 - 重复入队拒绝。
 - 取消匹配票据。
 - 超时扫描。
-- 匹配成功生成 `match_id` 和 `room_id`。
+- 匹配成功生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。
 - 查询匹配结果。
 
 仍需补：
 
-- 真实房间服或战斗服分配。
+- 真实 TCP/WebSocket 房间服或战斗服进程。
 - 更完整的 HTTP handler 单元测试。
 
 ### MySQL 阶段

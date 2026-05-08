@@ -75,6 +75,21 @@ def main():
             print(f">>> {method} {path}")
             print(json.dumps(request(method, path, payload), ensure_ascii=False, indent=2))
 
+        print(">>> POST /api/servers")
+        print(json.dumps(request("POST", "/api/servers", {
+            "server_id": "demo-room-1",
+            "server_type": "room",
+            "addr": "127.0.0.1:7001",
+            "region": "local",
+            "match_mode": "duel",
+            "capacity": 8,
+            "current_load": 0,
+            "status": "active",
+        }), ensure_ascii=False, indent=2))
+
+        print(">>> GET /api/servers?match_mode=duel")
+        print(json.dumps(request("GET", "/api/servers?match_mode=duel"), ensure_ascii=False, indent=2))
+
         print(">>> POST /api/match/tickets")
         first_ticket = request("POST", "/api/match/tickets", {
             "player_id": "p4",
@@ -121,6 +136,8 @@ def main():
             "corerank_matcher_ticket_events_total",
             "corerank_matcher_lifecycle_duration_seconds",
             "corerank_matcher_queued_tickets",
+            "corerank_room_assignment_total",
+            "corerank_room_server_load",
         ]
         missing = [name for name in expected_metrics if name not in metrics_body]
         if missing:

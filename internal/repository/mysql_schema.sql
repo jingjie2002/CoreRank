@@ -24,11 +24,14 @@ CREATE TABLE IF NOT EXISTS match_tickets (
 CREATE TABLE IF NOT EXISTS match_results (
   match_id VARCHAR(80) PRIMARY KEY,
   room_id VARCHAR(80) NOT NULL,
+  server_id VARCHAR(80) NOT NULL DEFAULT '',
+  server_addr VARCHAR(255) NOT NULL DEFAULT '',
   match_mode VARCHAR(32) NOT NULL,
   player_ids JSON NOT NULL,
   status VARCHAR(32) NOT NULL,
   created_at_ms BIGINT NOT NULL,
-  INDEX idx_match_results_room_id (room_id)
+  INDEX idx_match_results_room_id (room_id),
+  INDEX idx_match_results_server_id (server_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS rank_snapshots (

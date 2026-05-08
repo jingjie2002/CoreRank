@@ -116,12 +116,14 @@ func TestMySQLRepositoryPersistsPlayerTicketResultAndSnapshot(t *testing.T) {
 	}
 
 	result := MatchResult{
-		MatchID:   ticket.MatchID,
-		RoomID:    ticket.RoomID,
-		MatchMode: ticket.MatchMode,
-		PlayerIDs: []string{"mysql-player", "mysql-opponent"},
-		Status:    MatchStatusMatched,
-		CreatedAt: 2000,
+		MatchID:    ticket.MatchID,
+		RoomID:     ticket.RoomID,
+		ServerID:   "room-server-mysql-1",
+		ServerAddr: "127.0.0.1:7001",
+		MatchMode:  ticket.MatchMode,
+		PlayerIDs:  []string{"mysql-player", "mysql-opponent"},
+		Status:     MatchStatusMatched,
+		CreatedAt:  2000,
 	}
 	if err := repo.UpsertMatchResult(ctx, result); err != nil {
 		t.Fatalf("upsert match result: %v", err)
@@ -132,6 +134,9 @@ func TestMySQLRepositoryPersistsPlayerTicketResultAndSnapshot(t *testing.T) {
 	}
 	if !reflect.DeepEqual(savedResult.PlayerIDs, result.PlayerIDs) {
 		t.Fatalf("unexpected result players: %#v", savedResult.PlayerIDs)
+	}
+	if savedResult.ServerID != result.ServerID || savedResult.ServerAddr != result.ServerAddr {
+		t.Fatalf("unexpected result server fields: %#v", savedResult)
 	}
 
 	if err := repo.SaveRankSnapshot(ctx, []RankSnapshotRow{{

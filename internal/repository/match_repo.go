@@ -40,12 +40,14 @@ type MatchTicket struct {
 }
 
 type MatchResult struct {
-	MatchID   string
-	RoomID    string
-	MatchMode string
-	PlayerIDs []string
-	Status    string
-	CreatedAt int64
+	MatchID    string
+	RoomID     string
+	ServerID   string
+	ServerAddr string
+	MatchMode  string
+	PlayerIDs  []string
+	Status     string
+	CreatedAt  int64
 }
 
 func (r *PlayerRepository) CreateMatchTicket(ctx context.Context, ticket MatchTicket, ttl time.Duration) error {
@@ -180,12 +182,14 @@ func (r *PlayerRepository) CompleteMatch(ctx context.Context, playerIDs []string
 		return nil, nil, err
 	}
 	pipe.HSet(ctx, matchResultKey(result.MatchID), map[string]any{
-		"match_id":   result.MatchID,
-		"room_id":    result.RoomID,
-		"match_mode": result.MatchMode,
-		"player_ids": string(playersJSON),
-		"status":     result.Status,
-		"created_at": result.CreatedAt,
+		"match_id":    result.MatchID,
+		"room_id":     result.RoomID,
+		"server_id":   result.ServerID,
+		"server_addr": result.ServerAddr,
+		"match_mode":  result.MatchMode,
+		"player_ids":  string(playersJSON),
+		"status":      result.Status,
+		"created_at":  result.CreatedAt,
 	})
 	pipe.Expire(ctx, matchResultKey(result.MatchID), defaultResultTTL)
 
@@ -229,6 +233,33 @@ func (r *PlayerRepository) TimeoutExpiredMatchTickets(ctx context.Context, now i
 
 func (r *PlayerRepository) CountQueuedMatchTickets(ctx context.Context) (int64, error) {
 	return r.client.ZCard(ctx, MatchTicketPoolKey).Result()
+}
+
+func (r *PlayerRepository) RequeueMatchTicketPlayers(ctx context.Context, playerIDs []string) error {
+	for _, playerID := range playerIDs {
+		ticketID, err := r.GetPlayerTicketID(ctx, playerID)
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			return err
+		}
+
+		ticket, err := r.GetMatchTicket(ctx, ticketID)
+		if err != nil {
+			if errors.Is(err, ErrTicketNotFound) {
+				continue
+			}
+			return err
+		}
+		if ticket.Status != MatchStatusQueued {
+			continue
+		}
+		if err := r.addPlayerToPool(ctx, MatchTicketPoolKey, ticket.PlayerID, ticket.MMRScore); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *PlayerRepository) timeoutMatchTicket(ctx context.Context, ticketID string, now int64) (*MatchTicket, error) {
@@ -322,10 +353,12 @@ func matchTicketFromHash(values map[string]string) (*MatchTicket, error) {
 
 func matchResultFromHash(values map[string]string) (*MatchResult, error) {
 	result := &MatchResult{
-		MatchID:   values["match_id"],
-		RoomID:    values["room_id"],
-		MatchMode: values["match_mode"],
-		Status:    values["status"],
+		MatchID:    values["match_id"],
+		RoomID:     values["room_id"],
+		ServerID:   values["server_id"],
+		ServerAddr: values["server_addr"],
+		MatchMode:  values["match_mode"],
+		Status:     values["status"],
 	}
 
 	if err := json.Unmarshal([]byte(values["player_ids"]), &result.PlayerIDs); err != nil {
