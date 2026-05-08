@@ -68,6 +68,9 @@ def main():
             ("POST", "/api/rank/score", {"player_id": "p3", "score": 1300}),
             ("GET", "/api/rank/top?n=3", None),
             ("GET", "/api/rank/player/p3", None),
+            ("POST", "/api/rank/score", {"player_id": "p1", "score": 2600, "leaderboard_type": "season:ss25"}),
+            ("POST", "/api/rank/score", {"player_id": "p2", "score": 2800, "leaderboard_type": "season:ss25"}),
+            ("GET", "/api/rank/top?n=2&leaderboard_type=season:ss25", None),
             ("POST", "/api/match/pool", {"player_id": "p1", "mmr_score": 1200}),
             ("POST", "/api/match/pool", {"player_id": "p2", "mmr_score": 1210}),
         ]

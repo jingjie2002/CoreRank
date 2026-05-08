@@ -97,8 +97,9 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 
 	mux.HandleFunc("POST /api/rank/score", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			PlayerID string  `json:"player_id"`
-			Score    float64 `json:"score"`
+			PlayerID        string  `json:"player_id"`
+			Score           float64 `json:"score"`
+			LeaderboardType string  `json:"leaderboard_type"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -108,11 +109,16 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 			writeError(w, http.StatusBadRequest, errors.New("player_id is required"))
 			return
 		}
-		if err := rankService.UpdatePlayerScore(r.Context(), req.PlayerID, req.Score); err != nil {
+		leaderboardType := rankLeaderboardType(r, req.LeaderboardType)
+		if err := rankService.UpdatePlayerScoreInLeaderboard(r.Context(), leaderboardType, req.PlayerID, req.Score); err != nil {
+			if errors.Is(err, service.ErrInvalidLeaderboardType) {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		player, err := rankService.GetPlayerRank(r.Context(), req.PlayerID)
+		player, err := rankService.GetPlayerRankInLeaderboard(r.Context(), leaderboardType, req.PlayerID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -122,8 +128,12 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 
 	mux.HandleFunc("GET /api/rank/top", func(w http.ResponseWriter, r *http.Request) {
 		topN, _ := strconv.ParseInt(r.URL.Query().Get("n"), 10, 64)
-		players, err := rankService.GetTopPlayers(r.Context(), topN)
+		players, err := rankService.GetTopPlayersInLeaderboard(r.Context(), rankLeaderboardType(r, ""), topN)
 		if err != nil {
+			if errors.Is(err, service.ErrInvalidLeaderboardType) {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -136,8 +146,12 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 			writeError(w, http.StatusBadRequest, errors.New("player_id is required"))
 			return
 		}
-		player, err := rankService.GetPlayerRank(r.Context(), playerID)
+		player, err := rankService.GetPlayerRankInLeaderboard(r.Context(), rankLeaderboardType(r, ""), playerID)
 		if err != nil {
+			if errors.Is(err, service.ErrInvalidLeaderboardType) {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -244,6 +258,16 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 	})
 
 	return mux
+}
+
+func rankLeaderboardType(r *http.Request, bodyValue string) string {
+	if value := r.URL.Query().Get("leaderboard_type"); value != "" {
+		return value
+	}
+	if value := r.URL.Query().Get("board"); value != "" {
+		return value
+	}
+	return bodyValue
 }
 
 func readJSON(r *http.Request, target any) error {

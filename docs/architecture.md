@@ -82,6 +82,16 @@ gRPC UpdateScore / REST POST /api/rank/score
   -> 可选 MySQL players upsert
 ```
 
+RESTful 调试入口还支持 `leaderboard_type`：
+
+```text
+REST POST /api/rank/score {"leaderboard_type":"season:ss25"}
+  -> RankService.UpdatePlayerScoreInLeaderboard
+  -> Redis ZADD {rank:season:ss25}
+```
+
+这用于演示赛季榜、活动榜和小游戏榜等轻量排行榜维度；gRPC v1 仍保持全局榜接口，不在本轮扩展协议。
+
 ### 查询 TopN
 
 ```text
@@ -89,6 +99,12 @@ gRPC GetTopRank / REST GET /api/rank/top
   -> RankService.GetTopPlayers
   -> Redis ZREVRANGE rank:global
   -> 可选 MySQL rank_snapshots 写入
+```
+
+```text
+REST GET /api/rank/top?leaderboard_type=season:ss25
+  -> RankService.GetTopPlayersInLeaderboard
+  -> Redis ZREVRANGE {rank:season:ss25}
 ```
 
 ### 查询单个玩家排名
@@ -159,6 +175,7 @@ MatchWorker
 | Key | 类型 | 说明 |
 |---|---|---|
 | `{rank:global}` | ZSet | 全局排行榜 |
+| `{rank:<leaderboard_type>}` | ZSet | 赛季榜、活动榜、小游戏榜等排行榜维度 |
 | `{match:pool}` | ZSet | 早期调试匹配池 |
 | `{match:ticket_pool}` | ZSet | 匹配票据玩家池 |
 | `{match:ticket_expiry}` | ZSet | 票据超时扫描索引 |

@@ -21,7 +21,7 @@
 ### 1. 先确认代码和 CI
 
 ```powershell
-cd F:\AI编程\简历\CoreRank
+cd path\to\CoreRank
 git status
 ```
 

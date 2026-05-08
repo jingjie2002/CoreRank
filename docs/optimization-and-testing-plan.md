@@ -284,7 +284,7 @@ Service 单元测试
 推荐当前本机测试命令：
 
 ```powershell
-cd F:\AI编程\简历\CoreRank
+cd path\to\CoreRank
 
 $env:GOCACHE = Join-Path (Get-Location) '.gocache'
 go test ./...

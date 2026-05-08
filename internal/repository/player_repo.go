@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -16,6 +17,8 @@ const (
 	MatchTicketExpiryKey = "{match:ticket_expiry}"
 	// GlobalRankKey 全局排行榜的 Redis Key
 	GlobalRankKey = "{rank:global}"
+	// GlobalLeaderboardType 默认全局榜维度
+	GlobalLeaderboardType = "global"
 )
 
 // PlayerRepository 玩家数据仓库
@@ -91,15 +94,34 @@ func (r *PlayerRepository) searchAndPickPlayers(ctx context.Context, key string,
 	return players, nil
 }
 
+// LeaderboardKey returns the Redis ZSet key for a leaderboard dimension.
+func LeaderboardKey(leaderboardType string) string {
+	leaderboardType = strings.TrimSpace(strings.ToLower(leaderboardType))
+	if leaderboardType == "" || leaderboardType == GlobalLeaderboardType {
+		return GlobalRankKey
+	}
+	return "{rank:" + leaderboardType + "}"
+}
+
 // GetGlobalRank 获取全局排行榜前 N 名
 // 返回玩家ID和分数的列表，按分数从高到低排序
 func (r *PlayerRepository) GetGlobalRank(ctx context.Context, topN int64) ([]redis.Z, error) {
-	return r.client.ZRevRangeWithScores(ctx, GlobalRankKey, 0, topN-1).Result()
+	return r.GetLeaderboardRank(ctx, GlobalLeaderboardType, topN)
+}
+
+// GetLeaderboardRank 获取指定排行榜维度前 N 名
+func (r *PlayerRepository) GetLeaderboardRank(ctx context.Context, leaderboardType string, topN int64) ([]redis.Z, error) {
+	return r.client.ZRevRangeWithScores(ctx, LeaderboardKey(leaderboardType), 0, topN-1).Result()
 }
 
 // UpdatePlayerScore 更新玩家在全局排行榜中的分数
 func (r *PlayerRepository) UpdatePlayerScore(ctx context.Context, playerID string, score float64) error {
-	return r.client.ZAdd(ctx, GlobalRankKey, redis.Z{
+	return r.UpdatePlayerScoreInLeaderboard(ctx, GlobalLeaderboardType, playerID, score)
+}
+
+// UpdatePlayerScoreInLeaderboard 更新玩家在指定排行榜维度中的分数
+func (r *PlayerRepository) UpdatePlayerScoreInLeaderboard(ctx context.Context, leaderboardType string, playerID string, score float64) error {
+	return r.client.ZAdd(ctx, LeaderboardKey(leaderboardType), redis.Z{
 		Score:  score,
 		Member: playerID,
 	}).Err()
@@ -112,10 +134,20 @@ func (r *PlayerRepository) RemovePlayerFromPool(ctx context.Context, playerID st
 
 // GetPlayerRank 获取玩家在全局排行榜中的排名 (0-based, 分数从高到低)
 func (r *PlayerRepository) GetPlayerRank(ctx context.Context, playerID string) (int64, error) {
-	return r.client.ZRevRank(ctx, GlobalRankKey, playerID).Result()
+	return r.GetPlayerRankInLeaderboard(ctx, GlobalLeaderboardType, playerID)
+}
+
+// GetPlayerRankInLeaderboard 获取玩家在指定排行榜维度中的排名 (0-based, 分数从高到低)
+func (r *PlayerRepository) GetPlayerRankInLeaderboard(ctx context.Context, leaderboardType string, playerID string) (int64, error) {
+	return r.client.ZRevRank(ctx, LeaderboardKey(leaderboardType), playerID).Result()
 }
 
 // GetPlayerScore 获取玩家在全局排行榜中的分数
 func (r *PlayerRepository) GetPlayerScore(ctx context.Context, playerID string) (float64, error) {
-	return r.client.ZScore(ctx, GlobalRankKey, playerID).Result()
+	return r.GetPlayerScoreInLeaderboard(ctx, GlobalLeaderboardType, playerID)
+}
+
+// GetPlayerScoreInLeaderboard 获取玩家在指定排行榜维度中的分数
+func (r *PlayerRepository) GetPlayerScoreInLeaderboard(ctx context.Context, leaderboardType string, playerID string) (float64, error) {
+	return r.client.ZScore(ctx, LeaderboardKey(leaderboardType), playerID).Result()
 }

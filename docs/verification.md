@@ -23,7 +23,7 @@
 在项目根目录执行：
 
 ```powershell
-cd F:\AI编程\简历\CoreRank
+cd path\to\CoreRank
 $env:GOCACHE = Join-Path (Get-Location) ".gocache"
 go test ./...
 go vet ./...
@@ -120,6 +120,8 @@ python scripts\rest_demo.py
 - `POST /api/rank/score`
 - `GET /api/rank/top`
 - `GET /api/rank/player/{player_id}`
+- `POST /api/rank/score` 携带 `leaderboard_type=season:ss25`
+- `GET /api/rank/top?leaderboard_type=season:ss25`
 - `POST /api/match/pool`
 - `POST /api/servers`
 - `GET /api/servers`
@@ -132,6 +134,7 @@ python scripts\rest_demo.py
 - 能写入 3 个玩家分数。
 - TopN 顺序正确。
 - 个人名次正确。
+- `season:ss25` 赛季榜可以独立写入和查询，不污染全局榜。
 - 玩家可加入匹配池。
 - 能注册 demo room server。
 - 两个分数接近的玩家创建票据后可生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。

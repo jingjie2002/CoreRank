@@ -22,6 +22,7 @@ Go 游戏匹配与排行榜中台
 - gRPC 匹配生命周期接口：`CreateMatchTicket`、`GetMatchTicket`、`CancelMatchTicket`、`GetMatchResult`
 - RESTful 调试与联调接口
 - Redis ZSet 匹配池与排行榜
+- RESTful 排行榜支持 `leaderboard_type` 维度，可用于赛季榜、活动榜和小游戏榜，默认仍为全局榜
 - Redis Lua 候选玩家原子摘取
 - RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
 - Redis 短期保存 `MatchTicket` 与 `MatchResult`
@@ -178,6 +179,7 @@ go test ./...
 - 更新玩家分数。
 - 查询 TopN 排行榜。
 - 查询单个玩家名次。
+- 更新并查询 `season:ss25` 赛季榜，证明活动榜/赛季榜与全局榜隔离。
 - 注册一台 demo room server。
 - 玩家加入匹配池。
 - 创建匹配票据。
@@ -231,6 +233,7 @@ python scripts\room_tcp_demo.py
 
 - Go + gRPC/RESTful 实现匹配池、匹配票据与排行榜服务。
 - Redis ZSet 承载匹配池和排行榜热数据。
+- RESTful 排行榜支持全局榜、赛季榜、活动榜等轻量维度，适合承接赛季积分和活动 TopN 场景。
 - Redis Lua 将候选玩家查询与删除合并为原子操作。
 - Redis Hash 保存短期匹配票据和匹配结果。
 - RESTful 和 gRPC API 支持创建/取消匹配票据、查询票据和查询匹配结果。

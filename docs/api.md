@@ -98,7 +98,8 @@ POST /api/rank/score
 ```json
 {
   "player_id": "p1",
-  "score": 1200
+  "score": 1200,
+  "leaderboard_type": "season:ss25"
 }
 ```
 
@@ -116,12 +117,20 @@ POST /api/rank/score
 
 - `player_id` 必填。
 - `score` 是排行榜分数。
+- `leaderboard_type` 可选，默认是 `global`；可使用 `season:ss25`、`event:spring` 这类值区分赛季榜、活动榜和小游戏榜。
+- 也可以通过查询参数覆盖：`POST /api/rank/score?leaderboard_type=season:ss25`。
 - 当前 RESTful 返回的是 Go 结构体默认 JSON 字段名，因此字段为 `PlayerID`、`Score`、`Rank`。
 
 ### 查询 TopN 排行榜
 
 ```http
 GET /api/rank/top?n=10
+```
+
+赛季榜或活动榜示例：
+
+```http
+GET /api/rank/top?n=10&leaderboard_type=season:ss25
 ```
 
 响应示例：
@@ -139,6 +148,7 @@ GET /api/rank/top?n=10
 说明：
 
 - `n` 小于等于 0 时，服务端默认查询前 10 名。
+- `leaderboard_type` 可选，默认查询全局榜。
 
 ### 查询单个玩家排名
 
@@ -150,6 +160,12 @@ GET /api/rank/player/{player_id}
 
 ```http
 GET /api/rank/player/p1
+```
+
+查询玩家在赛季榜中的名次：
+
+```http
+GET /api/rank/player/p1?leaderboard_type=season:ss25
 ```
 
 响应示例：

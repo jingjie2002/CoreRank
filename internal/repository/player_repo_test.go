@@ -68,9 +68,16 @@ func cleanRedisTestKeys(ctx context.Context, client *redis.Client) error {
 		return err
 	}
 
+	if err := cleanRedisKeysByPattern(ctx, client, "match:*"); err != nil {
+		return err
+	}
+	return cleanRedisKeysByPattern(ctx, client, "{rank:*}")
+}
+
+func cleanRedisKeysByPattern(ctx context.Context, client *redis.Client, pattern string) error {
 	var cursor uint64
 	for {
-		keys, nextCursor, err := client.Scan(ctx, cursor, "match:*", 100).Result()
+		keys, nextCursor, err := client.Scan(ctx, cursor, pattern, 100).Result()
 		if err != nil {
 			return err
 		}
@@ -170,5 +177,35 @@ func TestGlobalRankUsesRedisSortedSetOrder(t *testing.T) {
 	}
 	if rank != 1 {
 		t.Fatalf("expected zero-based rank 1 for carol, got %d", rank)
+	}
+}
+
+func TestLeaderboardTypesAreIsolated(t *testing.T) {
+	repo, cleanup := newTestRepository(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := repo.UpdatePlayerScore(ctx, "global-top", 9999); err != nil {
+		t.Fatalf("update global score: %v", err)
+	}
+	for playerID, score := range map[string]float64{
+		"season-a": 2100,
+		"season-b": 2500,
+	} {
+		if err := repo.UpdatePlayerScoreInLeaderboard(ctx, "season:ss25", playerID, score); err != nil {
+			t.Fatalf("update season score %s: %v", playerID, err)
+		}
+	}
+
+	topSeason, err := repo.GetLeaderboardRank(ctx, "season:ss25", 2)
+	if err != nil {
+		t.Fatalf("get season rank: %v", err)
+	}
+	if len(topSeason) != 2 || topSeason[0].Member != "season-b" || topSeason[1].Member != "season-a" {
+		t.Fatalf("unexpected season ranking: %#v", topSeason)
+	}
+
+	if _, err := repo.GetPlayerRankInLeaderboard(ctx, "season:ss25", "global-top"); err != redis.Nil {
+		t.Fatalf("global player should not be ranked in season leaderboard, err=%v", err)
 	}
 }
