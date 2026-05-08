@@ -8,7 +8,7 @@
 
 - Go 1.25.x
 - Redis 7.x
-- Python 3，用于 RESTful 演示脚本
+- Python 3，用于 RESTful 演示脚本和 TCP 房间服演示脚本
 
 可选依赖：
 
@@ -138,7 +138,28 @@ python scripts\rest_demo.py
 - 到期 queued 票据可被超时扫描推进为 `timeout`。
 - 可通过 `match_id` 查询匹配结果。
 
-## 5. gRPC Robot 验证
+## 5. TCP 房间服闭环演示
+
+执行：
+
+```powershell
+python scripts\room_tcp_demo.py
+```
+
+脚本会自动构建并启动临时 CoreRank Server 和 `cmd/roomserver`。通过标准：
+
+- roomserver 能注册到 `/api/servers` 并发送 heartbeat。
+- 两个玩家能通过 `POST /api/match/tickets` 匹配成功。
+- 匹配结果包含 `RoomID`、`ServerID` 和 `ServerAddr`。
+- TCP 客户端能连接 `ServerAddr`，完成 `join` / `ready` / `room_started` / `leave`。
+
+相关单元测试：
+
+```powershell
+go test ./internal/roomserver
+```
+
+## 6. gRPC Robot 验证
 
 先启动服务端：
 
@@ -186,7 +207,7 @@ go run ./cmd/robot
 - 不要把本机 TPS 写成生产承诺。
 - Windows 环境若出现 `Path/PATH` 重复导致启动器异常，应分开终端手动启动服务端和 Robot。
 
-## 6. gRPC 匹配生命周期验证
+## 7. gRPC 匹配生命周期验证
 
 当前 gRPC 匹配生命周期由测试覆盖：
 
@@ -208,7 +229,7 @@ go test ./internal/handler
 - 验证两个票据进入同一个 `match_id`。
 - 验证可通过 gRPC 查询匹配结果。
 
-## 7. Prometheus 验证
+## 8. Prometheus 验证
 
 服务端启动后访问：
 
@@ -254,7 +275,7 @@ corerank_matcher_lifecycle_duration_seconds
 corerank_matcher_queued_tickets
 ```
 
-## 8. CI 验证
+## 9. CI 验证
 
 当前 CI 基线位于：
 
@@ -269,12 +290,13 @@ CI 目标：
 - 执行 `go test ./...`。
 - 执行 `go vet ./...`。
 - 构建 `cmd/server`。
+- 构建 `cmd/roomserver`。
 - 构建 `cmd/robot`。
 - 使用 Node 24 运行时版本的官方 actions，避免 Node.js 20 deprecation warning。
 
 CI 会使用临时 MySQL 容器验证集成测试，但不代表生产环境可用。
 
-## 9. 后续阶段测试要求
+## 10. 后续阶段测试要求
 
 ### 匹配生命周期阶段
 
@@ -289,7 +311,7 @@ RESTful 和 gRPC 最小闭环已覆盖：
 
 仍需补：
 
-- 真实 TCP/WebSocket 房间服或战斗服进程。
+- WebSocket 房间服或完整战斗服进程。
 - 更完整的 HTTP handler 单元测试。
 
 ### MySQL 阶段
@@ -327,17 +349,18 @@ RESTful 和 gRPC 最小闭环已覆盖：
 
 - Linux 服务器环境下的压测记录。
 
-## 10. 面试演示建议
+## 11. 面试演示建议
 
 面试时推荐演示顺序：
 
 1. 打开 README，说明项目定位和未实现边界。
 2. 跑 `go test ./...`。
 3. 跑 `python scripts\rest_demo.py`。
-4. 展示 Robot 压测记录 `docs/benchmark.md`。
-5. 展示 Prometheus 或 Grafana 本地观测结果。
-6. 展示 `internal/repository/lua_scripts.go`。
-7. 展示 API 文档 `docs/api.md` 和架构文档 `docs/architecture.md`。
-8. 展示优化方案和后续 MySQL/匹配生命周期设计。
+4. 跑 `python scripts\room_tcp_demo.py`。
+5. 展示 Robot 压测记录 `docs/benchmark.md`。
+6. 展示 Prometheus 或 Grafana 本地观测结果。
+7. 展示 `internal/repository/lua_scripts.go`。
+8. 展示 API 文档 `docs/api.md` 和架构文档 `docs/architecture.md`。
+9. 展示优化方案和后续边界。
 
 不要现场临时搭复杂环境。演示重点是稳定、可解释、边界清楚。

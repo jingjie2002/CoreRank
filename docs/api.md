@@ -1,6 +1,6 @@
 # CoreRank API 文档
 
-本文档记录 CoreRank 当前已经实现的 RESTful、gRPC 和 metrics 接口。它只描述当前代码中真实存在的接口；当前已包含本地可验证的 Redis-backed 房间服/战斗服资源分配 v1，但不包含真实 TCP/WebSocket 战斗服进程、账号鉴权或匹配结果主动通知。
+本文档记录 CoreRank 当前已经实现的 RESTful、gRPC、TCP roomserver 和 metrics 接口。它只描述当前代码中真实存在的接口；当前已包含本地可验证的 Redis-backed 房间服资源分配 v1 和最小 TCP 房间服 v1，但不包含完整 WebSocket 房间服、真实战斗服进程、账号鉴权或匹配结果主动通知。
 
 ## 端口
 
@@ -443,6 +443,87 @@ rpc GetMatchResult(GetMatchResultRequest) returns (GetMatchResultResponse);
 |---|---|---|
 | `match_id` | `string` | 匹配结果 ID |
 
+## TCP Roomserver API
+
+TCP 房间服入口位于：
+
+```powershell
+go run ./cmd/roomserver
+```
+
+默认配置：
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `ROOM_SERVER_ID` | `demo-room-1` | 注册到 CoreRank 的 server id |
+| `ROOM_SERVER_ADDR` | `127.0.0.1:7001` | TCP 监听地址，也是匹配结果中的 `ServerAddr` |
+| `CORE_RANK_HTTP` | `http://127.0.0.1:8081` | CoreRank RESTful API 地址 |
+| `MATCH_MODE` | `duel` | 当前 roomserver 承接的匹配模式 |
+| `CAPACITY` | `8` | 可承接玩家槽位数 |
+| `HEARTBEAT_INTERVAL` | `10s` | 心跳间隔 |
+
+协议是 JSON line，每条请求和响应用换行分隔。
+
+### join
+
+```json
+{"type":"join","room_id":"room_xxx","player_id":"p1"}
+```
+
+响应：
+
+```json
+{"type":"joined","room_id":"room_xxx","player_id":"p1","players":["p1"]}
+```
+
+### ready
+
+```json
+{"type":"ready","room_id":"room_xxx","player_id":"p1"}
+```
+
+响应：
+
+```json
+{"type":"ready","room_id":"room_xxx","player_id":"p1","ready_players":["p1"]}
+```
+
+当同一房间至少 2 个玩家都 ready 后，服务端会额外返回：
+
+```json
+{"type":"room_started","room_id":"room_xxx","players":["p1","p2"]}
+```
+
+### leave
+
+```json
+{"type":"leave","room_id":"room_xxx","player_id":"p1"}
+```
+
+响应：
+
+```json
+{"type":"left","room_id":"room_xxx","player_id":"p1"}
+```
+
+### ping
+
+```json
+{"type":"ping"}
+```
+
+响应：
+
+```json
+{"type":"pong"}
+```
+
+演示脚本：
+
+```powershell
+python scripts\room_tcp_demo.py
+```
+
 ## Metrics API
 
 ```http
@@ -486,7 +567,7 @@ RESTful 错误响应格式：
 
 - 当前没有 JWT 或账号鉴权。
 - 当前没有匹配结果主动通知。
-- 当前有本地可验证的 Redis-backed 房间资源分配 v1，但没有真实 TCP/WebSocket 房间服或战斗服进程。
+- 当前有本地可验证的 Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1，但没有 WebSocket 房间服或完整战斗服进程。
 - 当前没有 Kubernetes 或生产级服务发现。
-- 当前 `room_id` 是逻辑 ID，`server_id/server_addr` 代表被选中的 server 资源记录。
+- 当前 `room_id` 是逻辑 ID，`server_id/server_addr` 代表被选中的 roomserver；TCP v1 只维护本进程内的临时房间状态。
 - 当前 RESTful 接口主要用于调试和演示，不是完整对外开放 API 网关。

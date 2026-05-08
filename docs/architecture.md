@@ -15,6 +15,9 @@ graph TB
     Gateway["游戏网关 / 房间服 / 后台工具"] -->|"gRPC / RESTful"| Server["CoreRank Server"]
     Robot["cmd/robot"] -->|"gRPC"| Server
     Demo["scripts/rest_demo.py"] -->|"RESTful"| Server
+    TCPDemo["scripts/room_tcp_demo.py"] -->|"RESTful"| Server
+    TCPDemo -->|"TCP JSON-line"| RoomServer["cmd/roomserver"]
+    RoomServer -->|"register / heartbeat"| Server
 
     Server --> RankHandler["Rank Handler"]
     Server --> MatchHandler["Match Handler"]
@@ -35,6 +38,7 @@ graph TB
     RoomServerRepo --> Redis
     RankService --> MySQL[("MySQL 可选持久化")]
     MatchService --> MySQL
+    MatchService -->|"ServerAddr / RoomID"| RoomServer
 ```
 
 ## 3. 目录分层
@@ -229,7 +233,7 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 ## 11. 当前未实现边界
 
-- 真实 TCP/WebSocket 房间服或战斗服进程。
+- WebSocket 房间服或完整战斗服进程。
 - 匹配结果主动通知。
 - JWT / 账号鉴权。
 - Redis Cluster。
@@ -243,5 +247,5 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 1. 做 Linux 云服务器或 Linux 容器部署验证。
 2. 记录 REST demo、Prometheus/Grafana 查询到的本地或云端 P95/P99。
-3. 如继续扩展房间能力，先设计真实 TCP/WebSocket 房间服进程和 CoreRank 的接口契约。
+3. 如继续扩展房间能力，在当前 TCP 房间服 v1 上补 WebSocket、鉴权、断线重连和完整战斗状态同步。
 4. 再考虑 Redis Cluster、多实例高可用和生产级服务发现。

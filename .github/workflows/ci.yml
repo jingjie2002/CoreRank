@@ -64,5 +64,8 @@ jobs:
       - name: Build server
         run: go build ./cmd/server
 
+      - name: Build roomserver
+        run: go build ./cmd/roomserver
+
       - name: Build robot
         run: go build ./cmd/robot
