@@ -87,10 +87,10 @@ graph TB
 docker compose up -d corerank-redis
 ```
 
-如果需要 Prometheus 和 Grafana：
+如果需要 Redis、MySQL、Prometheus 和 Grafana 本地演示栈：
 
 ```powershell
-docker compose up -d
+docker compose up -d corerank-redis corerank-mysql prometheus grafana
 ```
 
 ### 2. 启动服务端
@@ -103,6 +103,13 @@ go run ./cmd/server
 
 ```powershell
 $env:CORERANK_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
+go run ./cmd/server
+```
+
+如果使用本仓库 Docker Compose 启动的 MySQL，默认端口是 `3307`：
+
+```powershell
+$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
 go run ./cmd/server
 ```
 
@@ -121,6 +128,8 @@ $env:CORERANK_MYSQL_REQUIRED="true"
 | gRPC | `:8080` |
 | RESTful | `:8081` |
 | Prometheus metrics | `:9091` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3000` |
 
 可通过环境变量改端口：
 
@@ -236,6 +245,7 @@ python scripts\rest_demo.py
 - [API 文档](./docs/api.md)
 - [架构文档](./docs/architecture.md)
 - [本地测试与面试演示指南](./docs/demo-guide.md)
+- [本地观测栈](./docs/observability.md)
 - [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
 - [压测记录](./docs/benchmark.md)
 - [面试讲法](./docs/interview-notes.md)

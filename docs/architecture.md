@@ -208,7 +208,7 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 ### Docker Compose 演示
 
-当前已有 Redis、Prometheus、Grafana 配置。后续仍建议补 MySQL service 并完整验证。
+当前已有 Redis、MySQL、Prometheus、Grafana 配置。MySQL 默认映射到宿主机 `3307`，避免和本机已有 MySQL `3306` 冲突。
 
 ### Linux 云服务器演示
 
@@ -229,9 +229,7 @@ CoreRank 通过 `/metrics` 暴露 Prometheus 指标。
 
 优先级建议：
 
-1. 完成 API 文档和架构文档，让公开仓库更容易读懂。
-2. 补 Docker Compose MySQL service，形成完整本地依赖栈。
+1. 验证 Docker Compose + MySQL + Prometheus + Grafana 本地演示栈。
+2. 记录 Prometheus/Grafana 查询到的本地 P95/P99。
 3. 做真实房间服 / 战斗服分配前，先设计资源状态、失败回滚和接口契约。
-4. 做 Grafana dashboard 和 PromQL 分位数统计。
-5. 再考虑 Linux 云服务器部署验证。
-
+4. 再考虑 Linux 云服务器部署验证。

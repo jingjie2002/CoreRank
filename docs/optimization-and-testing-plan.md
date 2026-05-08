@@ -203,7 +203,8 @@ rank_snapshots
 - `docs/benchmark.md` 已补本机 Robot 压测记录。
 - `docs/demo-guide.md` 已补本地测试与面试演示指南。
 - `docs/interview-notes.md` 已整理。
-- Grafana/服务器部署验证和 P95/P99 真实采集仍未完成。
+- Docker Compose 已补 MySQL service、Grafana datasource provisioning 和基础 dashboard；仍需本机实际验证。
+- 服务器部署验证和 P95/P99 真实采集仍未完成。
 
 要做：
 
@@ -219,6 +220,7 @@ rank_snapshots
 - 补 `docs/benchmark.md`。已补本机 Robot 压测记录。
 - 补 `docs/demo-guide.md`。已补本地测试与面试演示指南。
 - 整理 `docs/interview-notes.md`。
+- 补 `docs/observability.md`。已补本地观测栈说明。
 
 验收标准：
 

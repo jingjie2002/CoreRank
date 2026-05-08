@@ -50,6 +50,20 @@ corerank_grpc_request_latency_seconds_count{method="UpdateScore"} 10000
 
 这说明 10000 次 `UpdateScore` gRPC 请求被服务端指标记录。当前 Robot 直接输出平均延迟；P95/P99 需要后续用 Prometheus histogram 和 PromQL 计算后再写入简历。
 
+## PromQL 分位数查询
+
+如果使用本地观测栈，可以在 Prometheus 或 Grafana 中查询：
+
+```promql
+histogram_quantile(0.95, sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
+```
+
+```promql
+histogram_quantile(0.99, sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
+```
+
+只有实际查询到结果后，才能把 P95/P99 作为本地压测记录补充进本文档。
+
 ## 解释边界
 
 - 可以说：本机 Robot 压测 10000 次 gRPC `UpdateScore` 请求，成功率 100%，平均延迟约 3.22ms。
