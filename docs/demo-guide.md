@@ -8,11 +8,14 @@
 |---|---|---|
 | CoreRank Server | 跑在 Linux 服务器或容器里 | 跑在你的 Windows 终端里 |
 | Redis | 独立缓存/状态服务 | 本机 Redis 或 Docker Redis |
-| MySQL | 独立数据库 | 本机 MySQL 测试库 |
+| MySQL | 独立数据库 | 本机 MySQL 测试库或 Docker MySQL |
 | Robot | 压测客户端 | 本机另一个终端 |
 | Prometheus | 定时抓 `/metrics` | 你可以直接浏览器打开 `/metrics` |
+| Grafana | 把 Prometheus 指标画成图 | 你可以打开 `http://localhost:3000` |
 
 ## 最稳的本地验收顺序
+
+如果要演示 Grafana，请先启动 Docker Desktop，再启动本地观测栈。当前本地观测栈已经验证过 Redis、MySQL、Prometheus 和 Grafana 能一起运行。只跑 REST demo 和 Go 测试时，不需要 Grafana。
 
 ### 1. 先确认代码和 CI
 
@@ -92,8 +95,9 @@ go run ./cmd/robot
 2. 跑 `go test ./...`，证明不是只会讲。
 3. 跑 `python scripts\rest_demo.py`，展示匹配生命周期。
 4. 打开 `http://localhost:9091/metrics`，说明 Prometheus 指标。
-5. 跑一次 Robot，展示 10000 次 gRPC 请求结果。
-6. 打开 `docs/benchmark.md`，说明压测数字的环境和边界。
+5. 打开 `http://localhost:3000`，展示 CoreRank Overview dashboard。
+6. 跑一次 Robot，展示 10000 次 gRPC 请求结果。
+7. 打开 `docs/benchmark.md`，说明压测数字的环境和边界。
 
 ## 你可以怎么解释“服务器”
 
@@ -109,5 +113,6 @@ go run ./cmd/robot
 - 不要现场讲 Redis Cluster 已落地。
 - 不要把本机 TPS 说成生产 TPS。
 - 不要说已经有真实房间服/战斗服调度。
+- Grafana 只能说明“本地观测演示栈”，不能说明生产监控已落地。
 
 面试演示的重点不是把云服务器搭得多复杂，而是你能稳定复现、能解释架构边界、能讲清楚每个测试证明了什么。

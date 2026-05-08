@@ -1,0 +1,438 @@
+# CoreRank API 文档
+
+本文档记录 CoreRank 当前已经实现的 RESTful、gRPC 和 metrics 接口。它只描述当前代码中真实存在的接口，不包含真实房间服调度、账号鉴权或匹配结果主动通知。
+
+## 端口
+
+默认端口：
+
+| 服务 | 默认地址 | 说明 |
+|---|---|---|
+| gRPC | `:8080` | 排行榜和匹配生命周期接口 |
+| RESTful | `:8081` | 调试、联调和演示接口 |
+| Metrics | `:9091` | Prometheus `/metrics` |
+
+可通过环境变量调整：
+
+```powershell
+$env:GRPC_ADDR="127.0.0.1:18080"
+$env:HTTP_ADDR="127.0.0.1:18081"
+$env:METRICS_ADDR="127.0.0.1:19091"
+go run ./cmd/server
+```
+
+## RESTful API
+
+RESTful 接口主要用于本地调试、脚本演示和面试展示。请求和响应均使用 JSON。
+
+### 健康检查
+
+```http
+GET /health
+```
+
+响应示例：
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### 更新排行榜分数
+
+```http
+POST /api/rank/score
+```
+
+请求体：
+
+```json
+{
+  "player_id": "p1",
+  "score": 1200
+}
+```
+
+响应示例：
+
+```json
+{
+  "PlayerID": "p1",
+  "Score": 1200,
+  "Rank": 1
+}
+```
+
+说明：
+
+- `player_id` 必填。
+- `score` 是排行榜分数。
+- 当前 RESTful 返回的是 Go 结构体默认 JSON 字段名，因此字段为 `PlayerID`、`Score`、`Rank`。
+
+### 查询 TopN 排行榜
+
+```http
+GET /api/rank/top?n=10
+```
+
+响应示例：
+
+```json
+[
+  {
+    "PlayerID": "p1",
+    "Score": 1200,
+    "Rank": 1
+  }
+]
+```
+
+说明：
+
+- `n` 小于等于 0 时，服务端默认查询前 10 名。
+
+### 查询单个玩家排名
+
+```http
+GET /api/rank/player/{player_id}
+```
+
+示例：
+
+```http
+GET /api/rank/player/p1
+```
+
+响应示例：
+
+```json
+{
+  "PlayerID": "p1",
+  "Score": 1200,
+  "Rank": 1
+}
+```
+
+### 加入传统匹配池
+
+```http
+POST /api/match/pool
+```
+
+请求体：
+
+```json
+{
+  "player_id": "p1",
+  "mmr_score": 1500
+}
+```
+
+响应示例：
+
+```json
+{
+  "player_id": "p1",
+  "mmr_score": 1500,
+  "queued": true
+}
+```
+
+说明：
+
+- 这是早期匹配池调试接口。
+- 当前更完整的匹配生命周期建议使用 `POST /api/match/tickets`。
+
+### 移出传统匹配池
+
+```http
+DELETE /api/match/pool/{player_id}
+```
+
+响应示例：
+
+```json
+{
+  "player_id": "p1",
+  "queued": false
+}
+```
+
+### 创建匹配票据
+
+```http
+POST /api/match/tickets
+```
+
+请求体：
+
+```json
+{
+  "player_id": "p1",
+  "mmr_score": 1500,
+  "match_mode": "default",
+  "max_wait_ms": 30000
+}
+```
+
+响应状态码：
+
+- `201 Created`：创建成功。
+- `409 Conflict`：玩家已有 queued 票据。
+- `400 Bad Request`：请求参数错误或其他匹配错误。
+
+响应示例：
+
+```json
+{
+  "TicketID": "ticket_xxx",
+  "PlayerID": "p1",
+  "MMRScore": 1500,
+  "MatchMode": "default",
+  "Status": "queued",
+  "MatchID": "",
+  "RoomID": "",
+  "CreatedAt": 1777990000000,
+  "UpdatedAt": 1777990000000,
+  "ExpiresAt": 1777990030000
+}
+```
+
+说明：
+
+- `match_mode` 为空时默认为 `default`。
+- `max_wait_ms` 小于等于 0 时使用服务端默认等待时间。
+- 当两个分数接近的 queued 票据满足匹配条件时，服务会生成 `match_id` 和逻辑 `room_id`。
+
+### 查询匹配票据
+
+```http
+GET /api/match/tickets/{ticket_id}
+```
+
+响应示例：
+
+```json
+{
+  "TicketID": "ticket_xxx",
+  "PlayerID": "p1",
+  "MMRScore": 1500,
+  "MatchMode": "default",
+  "Status": "matched",
+  "MatchID": "match_xxx",
+  "RoomID": "room_xxx",
+  "CreatedAt": 1777990000000,
+  "UpdatedAt": 1777990001000,
+  "ExpiresAt": 1777990030000
+}
+```
+
+状态说明：
+
+| 状态 | 含义 |
+|---|---|
+| `queued` | 等待匹配 |
+| `matched` | 已匹配成功 |
+| `cancelled` | 已取消 |
+| `timeout` | 已超时 |
+
+### 取消匹配票据
+
+```http
+DELETE /api/match/tickets/{ticket_id}
+```
+
+响应示例：
+
+```json
+{
+  "TicketID": "ticket_xxx",
+  "PlayerID": "p1",
+  "Status": "cancelled"
+}
+```
+
+说明：
+
+- 只有 `queued` 状态票据可以取消。
+- 已匹配、已取消或已超时票据会返回冲突错误。
+
+### 查询匹配结果
+
+```http
+GET /api/match/results/{match_id}
+```
+
+响应示例：
+
+```json
+{
+  "MatchID": "match_xxx",
+  "RoomID": "room_xxx",
+  "MatchMode": "default",
+  "PlayerIDs": [
+    "p1",
+    "p2"
+  ],
+  "Status": "matched",
+  "CreatedAt": 1777990001000
+}
+```
+
+说明：
+
+- 当前 `RoomID` 是逻辑房间 ID，不是真实房间服或战斗服分配结果。
+- 当前只支持查询结果，不支持主动推送通知。
+
+## gRPC API
+
+gRPC 协议定义位于：
+
+```text
+api/proto/rank.proto
+```
+
+### RankService
+
+#### UpdateScore
+
+```proto
+rpc UpdateScore(UpdateScoreRequest) returns (UpdateScoreResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `player_id` | `string` | 玩家 ID |
+| `new_score` | `int64` | 新排行榜分数 |
+| `change_type` | `string` | 当前实现主要按绝对分数写入 |
+
+响应字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `success` | `bool` | 是否成功 |
+| `player` | `Player` | 玩家信息 |
+| `current_rank` | `int64` | 当前排名，1-based |
+
+#### GetTopRank
+
+```proto
+rpc GetTopRank(GetTopRankRequest) returns (GetTopRankResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `leaderboard_type` | `string` | 排行榜类型，当前主要使用全局榜 |
+| `top_n` | `int32` | 查询前 N 名 |
+| `offset` | `int64` | 预留分页字段 |
+
+响应字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `entries` | `repeated RankEntry` | 排行榜条目 |
+| `total_players` | `int64` | 当前响应内总数 |
+| `updated_at` | `int64` | 响应时间戳 |
+
+### MatchService
+
+#### CreateMatchTicket
+
+```proto
+rpc CreateMatchTicket(CreateMatchTicketRequest) returns (CreateMatchTicketResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `player_id` | `string` | 玩家 ID |
+| `mmr_score` | `int64` | 匹配分 |
+| `match_mode` | `string` | 匹配模式 |
+| `max_wait_ms` | `int64` | 最大等待时间，毫秒 |
+
+#### GetMatchTicket
+
+```proto
+rpc GetMatchTicket(GetMatchTicketRequest) returns (GetMatchTicketResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `ticket_id` | `string` | 票据 ID |
+
+#### CancelMatchTicket
+
+```proto
+rpc CancelMatchTicket(CancelMatchTicketRequest) returns (CancelMatchTicketResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `ticket_id` | `string` | 票据 ID |
+
+#### GetMatchResult
+
+```proto
+rpc GetMatchResult(GetMatchResultRequest) returns (GetMatchResultResponse);
+```
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `match_id` | `string` | 匹配结果 ID |
+
+## Metrics API
+
+```http
+GET /metrics
+```
+
+关键指标：
+
+| 指标名 | 说明 |
+|---|---|
+| `corerank_grpc_requests_total` | gRPC 请求计数 |
+| `corerank_grpc_request_latency_seconds` | gRPC 请求耗时直方图 |
+| `corerank_matcher_match_total` | 匹配成功计数 |
+| `corerank_matcher_ticket_events_total` | 匹配票据事件计数 |
+| `corerank_matcher_lifecycle_duration_seconds` | 票据从创建到终态的耗时 |
+| `corerank_matcher_queued_tickets` | 当前 queued 票据数量 |
+
+## 错误响应
+
+RESTful 错误响应格式：
+
+```json
+{
+  "error": "error message"
+}
+```
+
+常见状态码：
+
+| 状态码 | 场景 |
+|---|---|
+| `400` | 请求参数错误 |
+| `404` | 票据、结果或玩家不存在 |
+| `409` | 重复入队、取消非 queued 票据 |
+| `500` | Redis 或服务端内部错误 |
+
+## 当前 API 边界
+
+- 当前没有 JWT 或账号鉴权。
+- 当前没有匹配结果主动通知。
+- 当前没有真实房间服或战斗服调度。
+- 当前 `room_id` 是逻辑 ID。
+- 当前 RESTful 接口主要用于调试和演示，不是完整对外开放 API 网关。
+

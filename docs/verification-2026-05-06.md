@@ -49,5 +49,4 @@ python .\scripts\rest_demo.py
 - 已生产落地。
 - 已支持 Redis Cluster。
 - 已完成完整游戏服务器。
-- 已经有 P99 延迟数据，除非后续补充正式分位数统计。
-
+- 把 2026-05-06 本轮平均延迟说成 P99；后续本机 Prometheus 分位数记录见 `docs/benchmark.md`。
