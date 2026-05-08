@@ -2,15 +2,15 @@
 
 ## 项目定位
 
-CoreRank 是一个面向竞技游戏服务端场景的 Go 匹配与排行榜中台项目。它负责处理排行榜写入、TopN 查询、匹配票据生命周期、匹配结果查询，以及可选的 MySQL 持久化。
+CoreRank 是一个面向竞技游戏服务端场景的 Go 匹配与排行榜中台项目。它负责处理排行榜写入、TopN 查询、匹配票据生命周期、匹配结果查询、房间资源分配，以及可选的 MySQL 持久化。
 
-它不是完整游戏服务器，也不包含客户端、账号系统、真实房间服、真实战斗服或生产级高可用部署。
+它不是完整游戏服务器，也不包含客户端、账号系统、完整战斗服、WebSocket 房间服或生产级高可用部署；当前只包含面试可演示的最小 TCP 房间服 v1。
 
 当前简历定位建议：
 
 ```text
 CoreRank 游戏匹配与排行榜中台（Go）
-基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 可选持久化玩家、匹配票据和匹配结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
+基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；通过 Redis-backed server registry 完成房间资源分配，并提供最小 TCP roomserver v1 演示 join/ready/leave 闭环；使用 MySQL 可选持久化玩家、匹配票据和匹配结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
 ## 当前已实现能力
@@ -22,6 +22,8 @@ CoreRank 游戏匹配与排行榜中台（Go）
 | 原子摘取 | 已实现 | 使用 Redis Lua 将候选查询和删除合并为一次原子操作 |
 | 匹配票据 | 已实现 | 支持创建、查询、取消、超时和匹配成功状态 |
 | 匹配结果 | 已实现 | 支持生成 `match_id`、逻辑 `room_id` 并查询结果 |
+| 房间资源分配 | 已实现 | Redis-backed server registry 支持注册、心跳、容量预留和 `ServerAddr` 返回 |
+| TCP roomserver v1 | 已实现 | `cmd/roomserver` 支持 JSON-line `join` / `ready` / `leave` / `ping` |
 | gRPC | 已实现 | 暴露排行榜和匹配生命周期接口 |
 | RESTful | 已实现 | 提供调试、联调和演示接口 |
 | MySQL | 已实现基础版 | 可选持久化玩家分数、匹配票据、匹配结果和榜单快照 |
@@ -35,8 +37,9 @@ CoreRank 游戏匹配与排行榜中台（Go）
 
 以下内容不是当前已完成功能，未验证前不应写进简历正文：
 
-- 真实房间服或战斗服资源分配。
 - 匹配结果主动通知玩家、网关或房间服。
+- WebSocket 房间服。
+- 完整战斗服逻辑、帧同步、状态同步、断线重连、鉴权和反作弊。
 - JWT、账号鉴权和权限模型。
 - Redis Cluster 实测部署。
 - 多实例高可用部署。
@@ -69,11 +72,14 @@ CoreRank 游戏匹配与排行榜中台（Go）
 - `MatchResult` 查询。
 - 匹配成功生成 `match_id` 和逻辑 `room_id`。
 - `RoomAllocator` 抽象。
+- Redis-backed 房间资源分配。
+- 最小 TCP roomserver v1。
 
 仍待补充：
 
-- 真实房间服 / 战斗服资源分配。
 - 匹配结果主动通知。
+- WebSocket 房间服。
+- 完整战斗服逻辑、断线重连、鉴权和状态同步。
 
 ### 阶段 2：MySQL 持久化证据链
 
@@ -122,6 +128,9 @@ CoreRank 游戏匹配与排行榜中台（Go）
 graph TB
     Client["游戏网关 / 房间服 / 后台工具"] -->|"gRPC / RESTful"| Server["CoreRank Server"]
     Robot["Robot 压测工具"] -->|"gRPC"| Server
+    RoomDemo["scripts/room_tcp_demo.py"] -->|"RESTful"| Server
+    RoomDemo -->|"TCP JSON-line"| RoomServer["cmd/roomserver"]
+    RoomServer -->|"register / heartbeat"| Server
     Server --> RankService["RankService"]
     Server --> MatchService["MatchService"]
     RankService --> Redis[("Redis ZSet")]
@@ -129,6 +138,7 @@ graph TB
     RankService --> MySQL[("MySQL 可选持久化")]
     MatchService --> MySQL
     Server --> Metrics["Prometheus /metrics"]
+    MatchService -->|"RoomID / ServerAddr"| RoomServer
 ```
 
 ## 核心设计
@@ -171,6 +181,7 @@ queued -> timeout
 go test ./...
 go vet ./...
 python scripts\rest_demo.py
+python scripts\room_tcp_demo.py
 ```
 
 Robot 压测：
@@ -193,9 +204,11 @@ go run ./cmd/robot
 | `docs/benchmark.md` | 本机压测记录 |
 | `docs/demo-guide.md` | 本地测试与面试演示指南 |
 | `docs/interview-notes.md` | 面试讲法 |
+| `cmd/roomserver` | 最小 TCP 房间服 v1 |
+| `scripts/room_tcp_demo.py` | REST 匹配到 TCP 入房闭环演示 |
 | `docker-compose.yml` | Redis、MySQL、Prometheus、Grafana 本地配置 |
 | `prometheus.yml` | Prometheus 抓取配置 |
 
 ## 当前结论
 
-CoreRank 当前已经具备可公开展示的主体能力。它可以作为 Go 游戏服务端方向的简历项目，但简历和面试中必须明确边界：当前完成的是匹配与排行榜中台的本机可验证版本，不是完整游戏服务器，也不是生产级部署系统。
+CoreRank 当前已经具备可公开展示的主体能力。它可以作为 Go 游戏服务端方向的简历项目，但简历和面试中必须明确边界：当前完成的是匹配与排行榜中台、Redis-backed 房间资源分配和最小 TCP 房间服 v1，不是完整游戏服务器，也不是生产级部署系统。
