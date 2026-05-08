@@ -228,11 +228,13 @@ python scripts\rest_demo.py
 1. 可信展示基线：README、CI、验证文档、Git 状态整理。
 2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；真实房间服分配待补。
 3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；基础故障降级已完成，后续继续补更细的业务查询和索引说明。
-4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标和本机压测记录已补；API 文档、架构文档、Grafana/服务器部署验证仍待补。
+4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标、本机压测记录、API 文档和架构文档已补；Grafana/服务器部署验证仍待补。
 
 ## 文档
 
 - [验证指南](./docs/verification.md)
+- [API 文档](./docs/api.md)
+- [架构文档](./docs/architecture.md)
 - [本地测试与面试演示指南](./docs/demo-guide.md)
 - [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
 - [压测记录](./docs/benchmark.md)

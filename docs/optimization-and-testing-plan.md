@@ -194,6 +194,17 @@ rank_snapshots
 
 目标：让项目变成可被面试官信任的公开项目。
 
+当前执行状态：
+
+- HTTP/metrics server 优雅关闭已补基础实现。
+- 真实匹配业务指标已接入 `MatchService` 的创建、匹配、取消和超时路径。
+- `docs/api.md` 已补。
+- `docs/architecture.md` 已补。
+- `docs/benchmark.md` 已补本机 Robot 压测记录。
+- `docs/demo-guide.md` 已补本地测试与面试演示指南。
+- `docs/interview-notes.md` 已整理。
+- Grafana/服务器部署验证和 P95/P99 真实采集仍未完成。
+
 要做：
 
 - HTTP/metrics server 优雅关闭。已补基础实现。
@@ -203,8 +214,8 @@ rank_snapshots
   - 超时数。
   - queued 票据数量。
   - 匹配票据生命周期耗时。
-- 补 `docs/api.md`。
-- 补 `docs/architecture.md`。
+- 补 `docs/api.md`。已补。
+- 补 `docs/architecture.md`。已补。
 - 补 `docs/benchmark.md`。已补本机 Robot 压测记录。
 - 补 `docs/demo-guide.md`。已补本地测试与面试演示指南。
 - 整理 `docs/interview-notes.md`。

@@ -306,6 +306,7 @@ RESTful 和 gRPC 最小闭环已覆盖：
 3. 跑 `python scripts\rest_demo.py`。
 4. 展示 `internal/repository/lua_scripts.go`。
 5. 展示 Robot 压测记录 `docs/benchmark.md`。
-6. 展示优化方案和后续 MySQL/匹配生命周期设计。
+6. 展示 API 文档 `docs/api.md` 和架构文档 `docs/architecture.md`。
+7. 展示优化方案和后续 MySQL/匹配生命周期设计。
 
 不要现场临时搭复杂环境。演示重点是稳定、可解释、边界清楚。
