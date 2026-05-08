@@ -17,7 +17,7 @@ CoreRank 游戏匹配与排行榜中台（Go）
 基于 Go 实现面向竞技游戏服务端的匹配与排行榜服务，提供 gRPC / RESTful 双协议接入；使用 Redis ZSet 与 Lua 脚本承载匹配池、排行榜和候选玩家原子摘取，设计 MatchTicket / MatchResult 状态流转支持入队、取消、超时和匹配结果查询；使用 MySQL 持久化玩家、匹配票据和对局结果，并接入 Prometheus 指标、CI 和 Robot 压测脚本完成可复现验证。
 ```
 
-注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描、CI、本地 Prometheus/Grafana 观测栈和 Redis-backed 房间资源分配 v1 已有可验证基线；真实 TCP/WebSocket 房间服进程、Linux 服务器部署和生产高可用仍不能写成已完成。
+注意：这段完整表述中的 MySQL、匹配生命周期、超时扫描、CI、本地 Prometheus/Grafana 观测栈、Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1 已有可验证基线；WebSocket、完整战斗服、Linux 服务器部署和生产高可用仍不能写成已完成。
 
 ## 2. 中台到底跑在哪里
 
@@ -94,7 +94,7 @@ CoreRank 对外通常有两类入口：
 
 - RESTful 和 gRPC 最小闭环已完成：创建票据、查询票据、取消票据、查询匹配结果。
 - Redis 已短期保存 `MatchTicket` 与 `MatchResult`。
-- 超时扫描、房间分配抽象和 Redis-backed 房间资源分配 v1 已补；真实 TCP/WebSocket 房间服进程仍待补。
+- 超时扫描、房间分配抽象、Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1 已补；WebSocket 与完整战斗服仍待补。
 
 新增核心模型：
 
@@ -271,7 +271,7 @@ Service 单元测试
 
 ## 5. 当前项目现阶段怎么测
 
-当前 CoreRank 已有 MySQL 可选持久化、RESTful/gRPC 匹配生命周期最小闭环和 Redis-backed 房间资源分配 v1，所以现阶段测试范围应该诚实限定在：
+当前 CoreRank 已有 MySQL 可选持久化、RESTful/gRPC 匹配生命周期最小闭环、Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1，所以现阶段测试范围应该诚实限定在：
 
 - Go 编译与静态检查。
 - Redis ZSet / Lua 测试。
@@ -527,7 +527,7 @@ go test ./... -tags=integration
 
 ## 10. 最终执行建议
 
-当前阶段 0-3 主线和 Redis-backed 房间资源分配 v1 已完成。下一步不要继续扩大成完整游戏服务器，建议只补“服务器部署/演示证据”：
+当前阶段 0-3 主线、Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1 已完成。下一步不要继续扩大成完整游戏服务器，建议只补“服务器部署/演示证据”：
 
 ```text
 Linux 服务端部署验证与演示材料
@@ -537,9 +537,9 @@ Linux 服务端部署验证与演示材料
 
 - 在一台 Linux 云服务器或本地 Linux 容器环境跑起 CoreRank。
 - 记录启动命令、依赖、端口、REST demo 输出和 `/metrics` 抓取结果。
-- 明确写清这仍是 demo server registry，不是真实战斗服进程。
+- 明确写清这仍是最小 TCP 房间服 v1，不是真实完整战斗服进程。
 
-这个阶段完成后，再考虑是否补真实 TCP/WebSocket 房间服进程。
+这个阶段完成后，再考虑是否补 WebSocket、断线重连、鉴权和完整战斗服状态同步。
 
 ## 11. 一句话回答测试问题
 
