@@ -241,6 +241,68 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 		writeJSON(w, http.StatusOK, result)
 	})
 
+	mux.HandleFunc("POST /api/matches/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/matches/")
+		if !strings.HasSuffix(path, "/settle") {
+			writeError(w, http.StatusNotFound, errors.New("match settlement endpoint not found"))
+			return
+		}
+		matchID := strings.Trim(strings.TrimSuffix(path, "/settle"), "/")
+		if matchID == "" || strings.Contains(matchID, "/") {
+			writeError(w, http.StatusBadRequest, errors.New("match_id is required"))
+			return
+		}
+		if _, err := matchService.GetResult(r.Context(), matchID); err != nil {
+			writeMatchError(w, err)
+			return
+		}
+
+		var req struct {
+			LeaderboardType string `json:"leaderboard_type"`
+			Scores          []struct {
+				PlayerID string  `json:"player_id"`
+				Score    float64 `json:"score"`
+			} `json:"scores"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if len(req.Scores) == 0 {
+			writeError(w, http.StatusBadRequest, errors.New("scores is required"))
+			return
+		}
+
+		leaderboardType := rankLeaderboardType(r, req.LeaderboardType)
+		updated := make([]*service.PlayerInfo, 0, len(req.Scores))
+		for _, score := range req.Scores {
+			if score.PlayerID == "" {
+				writeError(w, http.StatusBadRequest, errors.New("player_id is required"))
+				return
+			}
+			if err := rankService.UpdatePlayerScoreInLeaderboard(r.Context(), leaderboardType, score.PlayerID, score.Score); err != nil {
+				if errors.Is(err, service.ErrInvalidLeaderboardType) {
+					writeError(w, http.StatusBadRequest, err)
+					return
+				}
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			player, err := rankService.GetPlayerRankInLeaderboard(r.Context(), leaderboardType, score.PlayerID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			updated = append(updated, player)
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"match_id":         matchID,
+			"leaderboard_type": leaderboardType,
+			"updated_players":  updated,
+		})
+	})
+
 	mux.HandleFunc("DELETE /api/match/pool/", func(w http.ResponseWriter, r *http.Request) {
 		playerID := strings.TrimPrefix(r.URL.Path, "/api/match/pool/")
 		if playerID == "" {

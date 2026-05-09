@@ -352,6 +352,43 @@ GET /api/match/results/{match_id}
 - `ServerID` / `ServerAddr` 是 Redis-backed server registry 选出的房间服/战斗服资源。
 - 当前只支持查询结果，不支持主动推送通知。
 
+### 结算匹配并更新排行榜
+
+```http
+POST /api/matches/{match_id}/settle
+```
+
+请求体：
+
+```json
+{
+  "leaderboard_type": "season:ss25",
+  "scores": [
+    {"player_id": "p1", "score": 1260},
+    {"player_id": "p2", "score": 1210}
+  ]
+}
+```
+
+响应示例：
+
+```json
+{
+  "leaderboard_type": "season:ss25",
+  "match_id": "match_xxx",
+  "updated_players": [
+    {"PlayerID": "p1", "Score": 1260, "Rank": 1}
+  ]
+}
+```
+
+说明：
+
+- `match_id` 必须能在 CoreRank 中查到匹配结果。
+- `scores` 使用结算后的绝对排行榜分数。
+- `leaderboard_type` 可选，默认写入 `global`；可以用于赛季榜、活动榜或小游戏榜。
+- 该接口是最小战斗结算入口，只更新排行榜，不实现伤害、技能、掉落或完整战斗服逻辑。
+
 ## gRPC API
 
 gRPC 协议定义位于：
@@ -583,6 +620,7 @@ RESTful 错误响应格式：
 
 - 当前没有 JWT 或账号鉴权。
 - 当前没有匹配结果主动通知。
+- 当前有最小结算入口，可按 `match_id` 更新全局榜、赛季榜或活动榜分数；它不是完整战斗结算系统。
 - 当前有本地可验证的 Redis-backed 房间资源分配 v1 和最小 TCP 房间服 v1，但没有 WebSocket 房间服或完整战斗服进程。
 - 当前没有 Kubernetes 或生产级服务发现。
 - 当前 `room_id` 是逻辑 ID，`server_id/server_addr` 代表被选中的 roomserver；TCP v1 只维护本进程内的临时房间状态。

@@ -23,6 +23,7 @@ Go 游戏匹配与排行榜中台
 - RESTful 调试与联调接口
 - Redis ZSet 匹配池与排行榜
 - RESTful 排行榜支持 `leaderboard_type` 维度，可用于赛季榜、活动榜和小游戏榜，默认仍为全局榜
+- RESTful 最小结算入口：可按 `match_id` 更新全局榜、赛季榜或活动榜分数
 - Redis Lua 候选玩家原子摘取
 - RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
 - Redis 短期保存 `MatchTicket` 与 `MatchResult`
@@ -274,6 +275,7 @@ python scripts\room_tcp_demo.py
 - [验证指南](./docs/verification.md)
 - [API 文档](./docs/api.md)
 - [架构文档](./docs/architecture.md)
+- [部署与结算补强说明](./docs/deployment-and-settlement.md)
 - [本地测试与面试演示指南](./docs/demo-guide.md)
 - [本地观测栈](./docs/observability.md)
 - [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
