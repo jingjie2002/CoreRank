@@ -228,6 +228,33 @@ python scripts\room_tcp_demo.py
 - [验证指南](./docs/verification.md)
 - [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
 
+## Agent 接入
+
+CoreRank 已补充 Agent-ready 基础入口，供后续 `GameServerProjectAgent` 读取项目声明、健康状态和能力表。
+
+| 能力 | 入口 |
+|---|---|
+| 项目声明 | `agent.yaml` |
+| 健康检查 | `GET /healthz`，兼容旧 `GET /health` |
+| 能力声明 | `GET /api/agent/capabilities` |
+| Agent events | `GET /api/agent/events` |
+| Agent logs | `GET /api/agent/logs` |
+| Agent smoke test | `python scripts\agent_smoke.py` |
+
+离线检查 `agent.yaml`：
+
+```powershell
+python scripts\agent_smoke.py --offline
+```
+
+服务启动后检查 Agent 接入口：
+
+```powershell
+python scripts\agent_smoke.py --base-url http://127.0.0.1:8081
+```
+
+详细说明见：[Agent 接入说明](./docs/agent-integration.md)。
+
 ## 当前可写进简历的边界
 
 可以写：
@@ -273,6 +300,7 @@ python scripts\room_tcp_demo.py
 ## 文档
 
 - [验证指南](./docs/verification.md)
+- [Agent 接入说明](./docs/agent-integration.md)
 - [API 文档](./docs/api.md)
 - [架构文档](./docs/architecture.md)
 - [部署与结算补强说明](./docs/deployment-and-settlement.md)

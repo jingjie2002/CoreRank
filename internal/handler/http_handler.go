@@ -18,9 +18,11 @@ import (
 func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.PlayerRepository, matchService *service.MatchService) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /healthz", handleHealth)
+	mux.HandleFunc("GET /api/agent/capabilities", handleAgentCapabilities)
+	mux.HandleFunc("GET /api/agent/events", handleAgentEvents)
+	mux.HandleFunc("GET /api/agent/logs", handleAgentLogs)
 
 	mux.HandleFunc("POST /api/servers", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
