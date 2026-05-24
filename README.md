@@ -1,133 +1,69 @@
 # CoreRank
 
-CoreRank 是一个面向竞技游戏服务端场景的 Go 项目，聚焦两个常见中台能力：
+CoreRank 是一个面向竞技游戏场景的 Go 匹配与排行榜服务。项目提供 gRPC 和 RESTful 两种接入方式，使用 Redis 保存匹配池、匹配票据和排行榜热数据，并通过 Redis Lua 脚本减少候选玩家被重复匹配的风险。
 
-- 匹配池：玩家入队、按分数范围摘取候选玩家。
-- 排行榜：更新玩家分数、查询 TopN 和个人名次。
+这个仓库用于演示一条轻量的服务端链路：玩家更新积分、进入匹配队列、生成匹配结果、分配房间资源，并通过接口查询排行榜和匹配结果。
 
-项目提供 gRPC 与 RESTful 两种接入方式，核心热数据使用 Redis ZSet 保存，候选玩家摘取通过 Redis Lua 脚本把“查询 + 删除”收敛为一次原子执行，降低并发重复匹配风险。
+## 功能
 
-当前定位是：
+- 排行榜：更新玩家分数、查询 TopN、查询个人名次。
+- 多榜单维度：支持全局榜、赛季榜、活动榜等 `leaderboard_type`。
+- 匹配票据：创建、取消、查询票据状态和匹配结果。
+- Redis Lua：将候选玩家查询和移除合并为一次原子执行。
+- 房间资源分配：注册 room server，按匹配模式和容量选择可用服务。
+- TCP 房间服示例：`cmd/roomserver` 支持入房、准备、离开和心跳。
+- 可选 MySQL 持久化：玩家分数、匹配票据、匹配结果和榜单快照。
+- Prometheus 指标：请求耗时、匹配成功、取消、超时、队列数量和房间分配状态。
+- 本地观测栈：Docker Compose 提供 Redis、MySQL、Prometheus 和 Grafana。
+- 演示脚本：提供 RESTful 演示、TCP 房间服闭环演示和 gRPC robot 压测脚本。
+
+## 技术栈
+
+- Go 1.25
+- gRPC / Protobuf
+- RESTful HTTP
+- Redis / Redis Lua / Redis ZSet
+- MySQL
+- Prometheus / Grafana
+- Docker Compose
+
+## 目录结构
 
 ```text
-Go 游戏匹配与排行榜中台
+cmd/server/          CoreRank 服务端入口
+cmd/roomserver/      TCP 房间服示例
+cmd/robot/           gRPC 请求压测脚本
+api/proto/           Protobuf 协议与生成代码
+internal/handler/    gRPC、RESTful 和 Agent 接口
+internal/service/    排行榜、匹配和房间分配业务
+internal/repository/ Redis、MySQL 和 Lua 脚本封装
+internal/metrics/    Prometheus 指标
+pkg/redis/           Redis 客户端封装
+scripts/             本地演示脚本
+docs/                API、架构、部署和验证文档
+grafana/             Grafana dashboard 与 provisioning 配置
 ```
-
-它不是完整游戏服务器；当前只包含面试可演示的最小 TCP 房间服 v1，不包含完整战斗服、账号体系或生产级 Redis Cluster 部署。
-
-## 当前已实现
-
-- Go 服务端入口：`cmd/server`
-- gRPC 排行榜接口：`UpdateScore`、`GetTopRank`
-- gRPC 匹配生命周期接口：`CreateMatchTicket`、`GetMatchTicket`、`CancelMatchTicket`、`GetMatchResult`
-- RESTful 调试与联调接口
-- Redis ZSet 匹配池与排行榜
-- RESTful 排行榜支持 `leaderboard_type` 维度，可用于赛季榜、活动榜和小游戏榜，默认仍为全局榜
-- RESTful 最小结算入口：可按 `match_id` 更新全局榜、赛季榜或活动榜分数
-- Redis Lua 候选玩家原子摘取
-- RESTful 匹配票据生命周期：创建、取消、查询票据、查询匹配结果
-- Redis 短期保存 `MatchTicket` 与 `MatchResult`
-- 匹配票据超时扫描：到期 queued 票据会推进为 `timeout`
-- Redis-backed 房间服/战斗服资源注册表：支持注册、心跳、按匹配模式筛选和容量预留
-- 真实房间分配抽象：匹配成功时生成 `room_id`，并记录 `server_id` / `server_addr`
-- TCP 房间服 v1：`cmd/roomserver` 可注册到 CoreRank，并支持 `join` / `ready` / `leave` / `ping` JSON-line 协议
-- MySQL 可选持久化：玩家分数、匹配票据、匹配结果、榜单快照
-- MySQL 故障降级：默认保持 Redis 主链路可用，持久化失败时记录 warning
-- 积分桶扫描与滑动窗口匹配 Worker
-- Prometheus `/metrics` 指标端点：gRPC 请求、延迟、匹配成功、取消、超时、票据终态耗时、queued 数量、房间分配成功/失败、server load
-- RESTful API 与 Prometheus metrics server 支持退出信号下优雅关闭
-- Docker Compose 本地观测栈：Redis、MySQL、Prometheus、Grafana
-- Grafana `CoreRank Overview` dashboard 与 Prometheus datasource provisioning
-- gRPC Robot 压测程序，支持通过环境变量调整目标地址、并发数和请求数
-- RESTful 演示脚本和 TCP 房间服闭环演示脚本
-- Redis 关键路径测试
-- GitHub Actions CI 基线，使用 Node 24 运行时版本的官方 actions
-
-## 当前未实现
-
-- 匹配结果通知
-- WebSocket 房间服
-- 完整战斗服逻辑、帧同步、断线重连、鉴权和反作弊
-- Kubernetes 或生产级服务发现
-- JWT 或账号鉴权
-- Redis Cluster 实测部署
-- 生产级 P95/P99 性能承诺
-- 生产级高可用部署
-
-这些内容是后续优化方向，未实现前不应写进简历正文。
-
-## 架构概览
-
-```mermaid
-graph TB
-    GameService["游戏网关 / 房间服 / 后台工具"] -->|"gRPC / RESTful"| CoreRank["CoreRank Server"]
-    CoreRank --> RankService["Rank Service"]
-    CoreRank --> MatchWorker["Match Worker"]
-    RankService --> Redis[("Redis ZSet")]
-    MatchWorker --> Redis
-    CoreRank --> MySQL[("MySQL 可选持久化")]
-    CoreRank --> Metrics["Prometheus /metrics"]
-```
-
-分层结构：
-
-| 目录 | 说明 |
-|---|---|
-| `cmd/server` | 服务端入口，启动 Redis、gRPC、RESTful、Prometheus 和匹配 Worker |
-| `cmd/roomserver` | TCP 房间服 v1，注册到 CoreRank 后承接匹配结果里的 `room_id` |
-| `cmd/robot` | gRPC 压测机器人 |
-| `api/proto` | Protobuf 协议和生成代码 |
-| `internal/handler` | gRPC 与 RESTful handler |
-| `internal/service` | 排行榜服务与匹配 Worker |
-| `internal/repository` | Redis 仓库层与 Lua 脚本 |
-| `internal/repository/mysql_schema.sql` | MySQL 表结构 |
-| `internal/metrics` | Prometheus 指标定义 |
-| `pkg/redis` | Redis 客户端封装 |
-| `scripts` | RESTful 演示脚本和 TCP 房间服演示脚本 |
-| `docs` | 验证、面试讲法和优化方案文档 |
 
 ## 快速开始
 
 ### 1. 启动依赖
 
-当前最小运行依赖是 Redis。
+最小运行依赖是 Redis：
 
 ```powershell
 docker compose up -d corerank-redis
 ```
 
-如果需要 Redis、MySQL、Prometheus 和 Grafana 本地演示栈：
+如果需要同时启动 Redis、MySQL、Prometheus 和 Grafana：
 
 ```powershell
 docker compose up -d corerank-redis corerank-mysql prometheus grafana
 ```
 
-### 2. 启动服务端
+### 2. 启动服务
 
 ```powershell
 go run ./cmd/server
-```
-
-如需启用 MySQL 持久化：
-
-```powershell
-$env:CORERANK_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
-go run ./cmd/server
-```
-
-如果使用本仓库 Docker Compose 启动的 MySQL，默认端口是 `3307`：
-
-```powershell
-$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
-go run ./cmd/server
-```
-
-默认情况下，MySQL 是可选持久化层。即使 DSN 连接失败，或服务运行中 MySQL 写入失败，CoreRank 也会继续使用 Redis 主链路处理排行榜和匹配请求，并在日志中记录 warning。
-
-如需在测试或演示中强制要求 MySQL 可用：
-
-```powershell
-$env:CORERANK_MYSQL_REQUIRED="true"
 ```
 
 默认端口：
@@ -140,7 +76,7 @@ $env:CORERANK_MYSQL_REQUIRED="true"
 | Prometheus | `http://localhost:9090` |
 | Grafana | `http://localhost:3000` |
 
-可通过环境变量改端口：
+可以通过环境变量修改监听地址：
 
 ```powershell
 $env:GRPC_ADDR="127.0.0.1:18080"
@@ -149,58 +85,44 @@ $env:METRICS_ADDR="127.0.0.1:19091"
 go run ./cmd/server
 ```
 
-### 3. 运行 RESTful 演示
+### 3. 启用 MySQL 持久化
+
+MySQL 是可选持久化层。未配置 DSN 时，服务仍会使用 Redis 主链路处理排行榜和匹配请求。
+
+```powershell
+$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
+go run ./cmd/server
+```
+
+如果希望启动时强制要求 MySQL 可用：
+
+```powershell
+$env:CORERANK_MYSQL_REQUIRED="true"
+```
+
+## Demo
+
+RESTful 演示：
 
 ```powershell
 python scripts\rest_demo.py
 ```
 
-### 4. 运行 TCP 房间服闭环演示
+TCP 房间服闭环演示：
 
 ```powershell
 python scripts\room_tcp_demo.py
 ```
 
-这条命令会自动构建并启动临时 CoreRank Server 和 `cmd/roomserver`，再完成：
+`room_tcp_demo.py` 会自动构建并启动临时 CoreRank Server 和 `cmd/roomserver`，完成 room server 注册、玩家创建匹配票据、返回房间地址、TCP 客户端入房和准备流程。
 
-- roomserver 注册和心跳。
-- 两个玩家创建匹配票据。
-- CoreRank 返回 `room_id` / `ServerAddr`。
-- 两个 TCP 客户端进入房间、准备、触发 `room_started`，最后离开房间。
-
-MySQL 集成测试需要显式提供测试 DSN：
-
-```powershell
-$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
-go test ./...
-```
-
-演示覆盖：
-
-- 更新玩家分数。
-- 查询 TopN 排行榜。
-- 查询单个玩家名次。
-- 更新并查询 `season:ss25` 赛季榜，证明活动榜/赛季榜与全局榜隔离。
-- 注册一台 demo room server。
-- 玩家加入匹配池。
-- 创建匹配票据。
-- 查询带 `ServerID` / `ServerAddr` 的匹配结果。
-
-### 5. 运行 gRPC Robot
-
-先启动服务端，再另开终端执行：
+gRPC robot：
 
 ```powershell
 go run ./cmd/robot
 ```
 
-Robot 默认模拟：
-
-- 100 个 goroutine。
-- 每个 goroutine 发送 100 次 `UpdateScore`。
-- 总计 10000 次 gRPC 请求。
-
-可通过环境变量调整：
+robot 默认使用 100 个 goroutine，每个 goroutine 发送 100 次 `UpdateScore`。可以通过环境变量调整：
 
 ```powershell
 $env:ROBOT_GRPC_ADDR="localhost:8080"
@@ -209,11 +131,9 @@ $env:ROBOT_REQUESTS_PER_WORKER="100"
 go run ./cmd/robot
 ```
 
-性能数字只代表当前机器、当前 Redis 和当前测试参数，不代表生产承诺。
+## 验证
 
-## 验证命令
-
-推荐每次改动后执行：
+推荐在修改后执行：
 
 ```powershell
 $env:GOCACHE = Join-Path (Get-Location) ".gocache"
@@ -223,14 +143,16 @@ python scripts\rest_demo.py
 python scripts\room_tcp_demo.py
 ```
 
-更多测试策略见：
+MySQL 集成测试需要显式提供测试 DSN：
 
-- [验证指南](./docs/verification.md)
-- [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
+```powershell
+$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
+go test ./...
+```
 
 ## Agent 接入
 
-CoreRank 已补充 Agent-ready 基础入口，供后续 `GameServerProjectAgent` 读取项目声明、健康状态和能力表。
+CoreRank 提供一组只读的 Agent 接入口，方便外部工具读取项目状态和能力声明。
 
 | 能力 | 入口 |
 |---|---|
@@ -241,61 +163,17 @@ CoreRank 已补充 Agent-ready 基础入口，供后续 `GameServerProjectAgent`
 | Agent logs | `GET /api/agent/logs` |
 | Agent smoke test | `python scripts\agent_smoke.py` |
 
-离线检查 `agent.yaml`：
+离线检查：
 
 ```powershell
 python scripts\agent_smoke.py --offline
 ```
 
-服务启动后检查 Agent 接入口：
+服务启动后检查：
 
 ```powershell
 python scripts\agent_smoke.py --base-url http://127.0.0.1:8081
 ```
-
-详细说明见：[Agent 接入说明](./docs/agent-integration.md)。
-
-## 当前可写进简历的边界
-
-可以写：
-
-- Go + gRPC/RESTful 实现匹配池、匹配票据与排行榜服务。
-- Redis ZSet 承载匹配池和排行榜热数据。
-- RESTful 排行榜支持全局榜、赛季榜、活动榜等轻量维度，适合承接赛季积分和活动 TopN 场景。
-- Redis Lua 将候选玩家查询与删除合并为原子操作。
-- Redis Hash 保存短期匹配票据和匹配结果。
-- RESTful 和 gRPC API 支持创建/取消匹配票据、查询票据和查询匹配结果。
-- 匹配票据支持超时扫描，超时玩家可重新入队。
-- 匹配成功通过 Redis-backed 房间资源注册表选择可用 server，生成 `room_id`，并在 REST 查询结果中返回 `ServerID` / `ServerAddr`。
-- `cmd/roomserver` 提供最小 TCP 房间服 v1，支持玩家按匹配结果里的 `RoomID` 入房、准备和离开。
-- MySQL 可选持久化玩家分数、匹配票据、匹配结果和榜单快照。
-- MySQL 故障时默认降级到 Redis 主链路，避免可选持久化层中断核心请求。
-- Prometheus 指标暴露。
-- Prometheus 已记录匹配成功、取消、超时、票据生命周期耗时和 queued 数量等业务指标。
-- 本地 Docker Compose 观测栈已验证 Prometheus 抓取和 Grafana dashboard provisioning。
-- RESTful API 和 Prometheus metrics server 支持优雅关闭。
-- Robot 压测脚本、RESTful 演示脚本和 TCP 房间服闭环演示脚本。
-- 本机 10000 次 gRPC 请求验证成功率 100%，但必须标注本机环境和测试参数。
-- 本机 Docker + MySQL + Prometheus 小规模观测验证采集到 `UpdateScore` P95/P99，但只能作为本机演示数据。
-
-不建议写：
-
-- 已生产落地。
-- 已支持 Redis Cluster。
-- 完整游戏服务器。
-- 完整 TCP/WebSocket 战斗服。
-- 已支持断线重连、鉴权、反作弊或状态同步。
-- Kubernetes 或生产级服务发现。
-- 生产级 P99 延迟承诺。
-
-## 后续优化路线
-
-执行顺序：
-
-1. 可信展示基线：README、CI、验证文档、Git 状态整理。
-2. 匹配生命周期闭环：RESTful/gRPC `MatchTicket` 创建、取消、超时扫描、查询和 `MatchResult` 查询已完成；Redis-backed 真实房间资源分配 v1 已完成。
-3. MySQL 持久化证据链：玩家、匹配票据、匹配结果、榜单快照已接入；基础故障降级已完成，后续继续补更细的业务查询和索引说明。
-4. 可观测性与公开文档：HTTP/metrics 优雅关闭、真实匹配指标、本机压测记录、API 文档、架构文档、本地 Grafana dashboard 和 Prometheus P95/P99 查询记录已补；Linux 服务器部署验证仍待补。
 
 ## 文档
 
@@ -303,12 +181,21 @@ python scripts\agent_smoke.py --base-url http://127.0.0.1:8081
 - [Agent 接入说明](./docs/agent-integration.md)
 - [API 文档](./docs/api.md)
 - [架构文档](./docs/architecture.md)
-- [部署与结算补强说明](./docs/deployment-and-settlement.md)
-- [本地测试与面试演示指南](./docs/demo-guide.md)
+- [部署与结算说明](./docs/deployment-and-settlement.md)
+- [本地测试与演示指南](./docs/demo-guide.md)
 - [本地观测栈](./docs/observability.md)
-- [优化方案与测试策略](./docs/optimization-and-testing-plan.md)
+- [测试策略](./docs/optimization-and-testing-plan.md)
 - [压测记录](./docs/benchmark.md)
-- [面试讲法](./docs/interview-notes.md)
 - [2026-05-06 验证记录](./docs/verification-2026-05-06.md)
-- [技术报告](./CoreRank_Technical_Report.md)
-- [项目提案](./CoreRank_Proposal.md)
+
+## 当前限制
+
+- 不包含完整账号系统、JWT 鉴权或反作弊。
+- 不包含完整战斗服逻辑、帧同步或断线重连。
+- 未做 Redis Cluster 部署验证。
+- 未提供 Kubernetes 或线上服务发现配置。
+- 性能脚本结果只代表本机环境和测试参数，不代表生产承诺。
+
+## License
+
+未指定。
