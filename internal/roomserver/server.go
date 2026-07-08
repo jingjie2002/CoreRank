@@ -36,6 +36,9 @@ func NewServer(config Config) *Server {
 	if config.MatchMode == "" {
 		config.MatchMode = DefaultMatchMode
 	}
+	if strings.TrimSpace(config.PublicAddr) == "" {
+		config.PublicAddr = config.Addr
+	}
 	if config.Capacity <= 0 {
 		config.Capacity = DefaultCapacity
 	}
@@ -79,7 +82,7 @@ func (s *Server) Register(ctx context.Context) error {
 	payload := GameServerRegistration{
 		ServerID:    s.config.ServerID,
 		ServerType:  DefaultServerType,
-		Addr:        s.config.Addr,
+		Addr:        s.config.PublicAddr,
 		Region:      DefaultRegion,
 		MatchMode:   s.config.MatchMode,
 		Capacity:    s.config.Capacity,

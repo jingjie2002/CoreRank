@@ -145,6 +145,33 @@ func TestRoomServerRegisterAndHeartbeat(t *testing.T) {
 	}
 }
 
+func TestRoomServerRegisterUsesPublicAddr(t *testing.T) {
+	var body map[string]any
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer httpServer.Close()
+
+	server := NewServer(Config{
+		ServerID:     "compose-room-1",
+		Addr:         ":7001",
+		PublicAddr:   "127.0.0.1:7001",
+		CoreRankHTTP: httpServer.URL,
+		MatchMode:    "duel",
+	})
+
+	if err := server.Register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if body["addr"] != "127.0.0.1:7001" {
+		t.Fatalf("unexpected public addr: %#v", body)
+	}
+}
+
 type testClient struct {
 	conn    net.Conn
 	decoder *json.Decoder

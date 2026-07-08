@@ -26,6 +26,7 @@ func main() {
 	config := roomserver.Config{
 		ServerID:          envOrDefault("ROOM_SERVER_ID", defaultRoomServerID),
 		Addr:              envOrDefault("ROOM_SERVER_ADDR", defaultRoomAddr),
+		PublicAddr:        envOrDefault("ROOM_SERVER_PUBLIC_ADDR", ""),
 		CoreRankHTTP:      envOrDefault("CORE_RANK_HTTP", defaultCoreRankHTTP),
 		MatchMode:         envOrDefault("MATCH_MODE", roomserver.DefaultMatchMode),
 		Capacity:          envInt64("CAPACITY", roomserver.DefaultCapacity),
@@ -107,7 +108,7 @@ func envDuration(name string, fallbackMS int64) time.Duration {
 func init() {
 	if len(os.Args) > 1 && os.Args[1] == "-h" {
 		fmt.Println("CoreRank roomserver")
-		fmt.Println("env: ROOM_SERVER_ID, ROOM_SERVER_ADDR, CORE_RANK_HTTP, MATCH_MODE, CAPACITY, HEARTBEAT_INTERVAL")
+		fmt.Println("env: ROOM_SERVER_ID, ROOM_SERVER_ADDR, ROOM_SERVER_PUBLIC_ADDR, CORE_RANK_HTTP, MATCH_MODE, CAPACITY, HEARTBEAT_INTERVAL")
 		os.Exit(0)
 	}
 }

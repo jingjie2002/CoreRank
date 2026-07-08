@@ -17,6 +17,21 @@ import (
 func newTestMatchService(t *testing.T) (*MatchService, func()) {
 	t.Helper()
 
+	matchService, _, cleanup := newTestMatchServiceComponents(t)
+	return matchService, cleanup
+}
+
+func newTestMatchServiceWithRoomServers(t *testing.T) (*MatchService, *repository.RoomServerRepository, func()) {
+	t.Helper()
+
+	matchService, roomServerRepo, cleanup := newTestMatchServiceComponents(t)
+	matchService.SetRoomServerRepository(roomServerRepo)
+	return matchService, roomServerRepo, cleanup
+}
+
+func newTestMatchServiceComponents(t *testing.T) (*MatchService, *repository.RoomServerRepository, func()) {
+	t.Helper()
+
 	addr := os.Getenv("CORERANK_TEST_REDIS_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:6379"
@@ -38,12 +53,13 @@ func newTestMatchService(t *testing.T) (*MatchService, func()) {
 	}
 
 	repo := repository.NewPlayerRepository(client)
+	roomServerRepo := repository.NewRoomServerRepository(client)
 	cleanup := func() {
 		_ = cleanMatchServiceTestKeys(context.Background(), client)
 		releaseLock()
 		_ = client.Close()
 	}
-	return NewMatchService(repo), cleanup
+	return NewMatchService(repo), roomServerRepo, cleanup
 }
 
 func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
@@ -70,22 +86,25 @@ func cleanMatchServiceTestKeys(ctx context.Context, client *redis.Client) error 
 		return err
 	}
 
-	var cursor uint64
-	for {
-		keys, nextCursor, err := client.Scan(ctx, cursor, "match:*", 100).Result()
-		if err != nil {
-			return err
-		}
-		if len(keys) > 0 {
-			if err := client.Del(ctx, keys...).Err(); err != nil {
+	for _, pattern := range []string{"match:*", "server:*", "room:assignment:*"} {
+		var cursor uint64
+		for {
+			keys, nextCursor, err := client.Scan(ctx, cursor, pattern, 100).Result()
+			if err != nil {
 				return err
 			}
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			return nil
+			if len(keys) > 0 {
+				if err := client.Del(ctx, keys...).Err(); err != nil {
+					return err
+				}
+			}
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
 		}
 	}
+	return nil
 }
 
 type fixedRoomAllocator struct {
@@ -267,6 +286,101 @@ func TestMatchServiceRequeuesTicketsWhenRoomAllocationFails(t *testing.T) {
 	}
 	if queued != 0 {
 		t.Fatalf("expected ticket pool to be empty after recovery, got %d", queued)
+	}
+}
+
+func TestMatchServiceRequeuesTicketsWhenRoomServerCapacityIsInsufficient(t *testing.T) {
+	matchService, roomServerRepo, cleanup := newTestMatchServiceWithRoomServers(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	_, err := matchService.RegisterGameServer(ctx, repository.GameServer{
+		ServerID:        "room-capacity-1",
+		Addr:            "127.0.0.1:7401",
+		MatchMode:       "duel",
+		Capacity:        1,
+		Status:          repository.GameServerStatusActive,
+		LastHeartbeatAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("register capacity-limited room server: %v", err)
+	}
+
+	first, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID:  "capacity-p1",
+		MMRScore:  1200,
+		MatchMode: "duel",
+		MaxWait:   time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create first ticket: %v", err)
+	}
+	if first.Status != repository.MatchStatusQueued {
+		t.Fatalf("first ticket should wait, got %#v", first)
+	}
+
+	second, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID:  "capacity-p2",
+		MMRScore:  1210,
+		MatchMode: "duel",
+		MaxWait:   time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("capacity failure should keep ticket queued instead of failing request: %v", err)
+	}
+	if second.Status != repository.MatchStatusQueued || second.MatchID != "" || second.RoomID != "" {
+		t.Fatalf("second ticket should stay queued without a partial match result, got %#v", second)
+	}
+
+	refreshedFirst, err := matchService.GetTicket(ctx, first.TicketID)
+	if err != nil {
+		t.Fatalf("get first ticket after capacity failure: %v", err)
+	}
+	if refreshedFirst.Status != repository.MatchStatusQueued || refreshedFirst.MatchID != "" || refreshedFirst.RoomID != "" {
+		t.Fatalf("first ticket should stay queued without a partial match result, got %#v", refreshedFirst)
+	}
+
+	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	if err != nil {
+		t.Fatalf("count queued tickets: %v", err)
+	}
+	if queued != 2 {
+		t.Fatalf("expected both tickets to be requeued, got %d", queued)
+	}
+
+	server, err := roomServerRepo.GetGameServer(ctx, "room-capacity-1")
+	if err != nil {
+		t.Fatalf("get capacity-limited room server: %v", err)
+	}
+	if server.CurrentLoad != 0 {
+		t.Fatalf("capacity failure should not reserve room server load, got %#v", server)
+	}
+
+	_, err = matchService.RegisterGameServer(ctx, repository.GameServer{
+		ServerID:        "room-capacity-1",
+		Addr:            "127.0.0.1:7401",
+		MatchMode:       "duel",
+		Capacity:        4,
+		Status:          repository.GameServerStatusActive,
+		LastHeartbeatAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("register recovered room server: %v", err)
+	}
+	result, err := matchService.TryCompleteMatch(ctx, 1205, "duel")
+	if err != nil {
+		t.Fatalf("complete requeued tickets after room server recovers: %v", err)
+	}
+	if result == nil || result.ServerID != "room-capacity-1" || result.ServerAddr != "127.0.0.1:7401" {
+		t.Fatalf("expected recovered room server assignment, got %#v", result)
+	}
+
+	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	if err != nil {
+		t.Fatalf("count queued tickets after recovery: %v", err)
+	}
+	if queued != 0 {
+		t.Fatalf("expected queue to drain after recovery, got %d", queued)
 	}
 }
 

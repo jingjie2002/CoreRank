@@ -53,6 +53,7 @@ type GameServerHeartbeat struct {
 type Config struct {
 	ServerID          string
 	Addr              string
+	PublicAddr        string
 	CoreRankHTTP      string
 	MatchMode         string
 	Capacity          int64

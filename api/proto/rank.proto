@@ -99,6 +99,22 @@ message MatchResult {
     repeated string player_ids = 4;
     string status = 5;
     int64 created_at = 6;
+    string server_id = 7;
+    string server_addr = 8;
+}
+
+// GameServer 房间/战斗服务器状态
+message GameServer {
+    string server_id = 1;
+    string server_type = 2;
+    string addr = 3;
+    string region = 4;
+    string match_mode = 5;
+    int64 capacity = 6;
+    int64 current_load = 7;
+    string status = 8;
+    int64 last_heartbeat_at = 9;
+    int64 updated_at = 10;
 }
 
 // CreateMatchTicketRequest 创建匹配票据请求
@@ -144,6 +160,39 @@ message GetMatchResultResponse {
     MatchResult result = 1;
 }
 
+// RegisterGameServerRequest 注册房间/战斗服务器请求
+message RegisterGameServerRequest {
+    GameServer server = 1;
+}
+
+// RegisterGameServerResponse 注册房间/战斗服务器响应
+message RegisterGameServerResponse {
+    GameServer server = 1;
+}
+
+// HeartbeatGameServerRequest 房间/战斗服务器心跳请求
+message HeartbeatGameServerRequest {
+    string server_id = 1;
+    string status = 2;
+    int64 current_load = 3;
+    bool update_current_load = 4;
+}
+
+// HeartbeatGameServerResponse 房间/战斗服务器心跳响应
+message HeartbeatGameServerResponse {
+    GameServer server = 1;
+}
+
+// ListGameServersRequest 查询房间/战斗服务器请求
+message ListGameServersRequest {
+    string match_mode = 1;
+}
+
+// ListGameServersResponse 查询房间/战斗服务器响应
+message ListGameServersResponse {
+    repeated GameServer servers = 1;
+}
+
 // UpdateScoreRequest 更新分数请求
 message UpdateScoreRequest {
     // 玩家 ID
@@ -154,6 +203,9 @@ message UpdateScoreRequest {
     
     // 分数变化类型：ABSOLUTE（绝对值）/ INCREMENT（增量）
     string change_type = 3;
+
+    // 排行榜类型/维度（为空时使用全局榜）
+    string leaderboard_type = 4;
 }
 
 // UpdateScoreResponse 更新分数响应
@@ -192,6 +244,27 @@ message GetTopRankResponse {
     int64 updated_at = 3;
 }
 
+// GetPlayerRankRequest 查询玩家排名请求
+message GetPlayerRankRequest {
+    // 玩家 ID
+    string player_id = 1;
+
+    // 排行榜类型/维度（为空时使用全局榜）
+    string leaderboard_type = 2;
+}
+
+// GetPlayerRankResponse 查询玩家排名响应
+message GetPlayerRankResponse {
+    // 是否找到玩家
+    bool found = 1;
+
+    // 玩家信息
+    Player player = 2;
+
+    // 当前在排行榜中的排名（1-based）
+    int64 current_rank = 3;
+}
+
 // RankEntry 排行榜条目
 message RankEntry {
     // 排名（1-based）
@@ -223,6 +296,9 @@ service RankService {
     // 
     // 性能要求：P99 延迟 < 50ms（Top 100 场景）
     rpc GetTopRank(GetTopRankRequest) returns (GetTopRankResponse);
+
+    // GetPlayerRank 查询指定玩家在排行榜中的排名
+    rpc GetPlayerRank(GetPlayerRankRequest) returns (GetPlayerRankResponse);
 }
 
 // MatchService 提供匹配票据生命周期接口。
@@ -231,4 +307,7 @@ service MatchService {
     rpc GetMatchTicket(GetMatchTicketRequest) returns (GetMatchTicketResponse);
     rpc CancelMatchTicket(CancelMatchTicketRequest) returns (CancelMatchTicketResponse);
     rpc GetMatchResult(GetMatchResultRequest) returns (GetMatchResultResponse);
+    rpc RegisterGameServer(RegisterGameServerRequest) returns (RegisterGameServerResponse);
+    rpc HeartbeatGameServer(HeartbeatGameServerRequest) returns (HeartbeatGameServerResponse);
+    rpc ListGameServers(ListGameServersRequest) returns (ListGameServersResponse);
 }

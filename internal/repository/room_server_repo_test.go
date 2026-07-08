@@ -166,3 +166,99 @@ func TestRoomServerRepositorySkipsUnavailableServers(t *testing.T) {
 		t.Fatalf("expected no available room server, got %v", err)
 	}
 }
+
+func TestRoomServerRepositorySkipsStaleServerAndAllocatesFreshPeer(t *testing.T) {
+	repo, cleanup := newTestRoomServerRepository(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+	_, err := repo.RegisterGameServer(ctx, GameServer{
+		ServerID:        "room-stale-low-load",
+		Addr:            "127.0.0.1:7201",
+		MatchMode:       "duel",
+		Capacity:        8,
+		Status:          GameServerStatusActive,
+		LastHeartbeatAt: now.Add(-time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("register stale server: %v", err)
+	}
+	_, err = repo.RegisterGameServer(ctx, GameServer{
+		ServerID:        "room-fresh-higher-load",
+		Addr:            "127.0.0.1:7202",
+		MatchMode:       "duel",
+		Capacity:        8,
+		CurrentLoad:     2,
+		Status:          GameServerStatusActive,
+		LastHeartbeatAt: now.UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("register fresh server: %v", err)
+	}
+
+	assignment, err := repo.AllocateRoomServer(ctx, RoomServerAllocationRequest{
+		MatchID:          "match_stale_skip",
+		RoomID:           "room_stale_skip",
+		MatchMode:        "duel",
+		PlayerIDs:        []string{"p1", "p2"},
+		HeartbeatTimeout: 30 * time.Second,
+		NowMS:            now.UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("allocate room server: %v", err)
+	}
+	if assignment.ServerID != "room-fresh-higher-load" || assignment.ServerAddr != "127.0.0.1:7202" {
+		t.Fatalf("expected fresh peer to be selected, got %#v", assignment)
+	}
+	if assignment.CurrentLoad != 4 {
+		t.Fatalf("expected fresh server load to reserve two slots from 2 to 4, got %#v", assignment)
+	}
+
+	stale, err := repo.GetGameServer(ctx, "room-stale-low-load")
+	if err != nil {
+		t.Fatalf("get stale server: %v", err)
+	}
+	if stale.CurrentLoad != 0 {
+		t.Fatalf("stale server should not be reserved, got %#v", stale)
+	}
+}
+
+func TestRoomServerRepositoryCapacityFailureDoesNotReserveLoad(t *testing.T) {
+	repo, cleanup := newTestRoomServerRepository(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now()
+	_, err := repo.RegisterGameServer(ctx, GameServer{
+		ServerID:        "room-too-small",
+		Addr:            "127.0.0.1:7301",
+		MatchMode:       "duel",
+		Capacity:        1,
+		Status:          GameServerStatusActive,
+		LastHeartbeatAt: now.UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("register small server: %v", err)
+	}
+
+	assignment, err := repo.AllocateRoomServer(ctx, RoomServerAllocationRequest{
+		MatchID:          "match_capacity_fail",
+		RoomID:           "room_capacity_fail",
+		MatchMode:        "duel",
+		PlayerIDs:        []string{"p1", "p2"},
+		HeartbeatTimeout: time.Minute,
+		NowMS:            now.UnixMilli(),
+	})
+	if !errors.Is(err, ErrNoAvailableRoomServer) {
+		t.Fatalf("expected no available room server, got assignment=%#v err=%v", assignment, err)
+	}
+
+	server, err := repo.GetGameServer(ctx, "room-too-small")
+	if err != nil {
+		t.Fatalf("get small server: %v", err)
+	}
+	if server.CurrentLoad != 0 {
+		t.Fatalf("capacity failure should not reserve load, got %#v", server)
+	}
+}

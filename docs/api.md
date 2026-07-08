@@ -8,22 +8,23 @@
 
 | 服务 | 默认地址 | 说明 |
 |---|---|---|
-| gRPC | `:8080` | 排行榜和匹配生命周期接口 |
-| RESTful | `:8081` | 调试、联调和演示接口 |
-| Metrics | `:9091` | Prometheus `/metrics` |
+| Gateway RESTful | `:8081` | 分布式 HTTP 入口 |
+| RankService gRPC | `:18081` | 排行榜内部服务 |
+| MatchService gRPC | `:18082` | 匹配内部服务 |
+| RoomServer TCP | `:7001` | TCP JSON-line 房间服 |
+| Gateway Metrics | `:19080` | Prometheus `/metrics` |
+| RankService Metrics | `:19081` | Prometheus `/metrics` |
+| MatchService Metrics | `:19082` | Prometheus `/metrics` |
 
-可通过环境变量调整：
+分布式栈启动命令：
 
 ```powershell
-$env:GRPC_ADDR="127.0.0.1:18080"
-$env:HTTP_ADDR="127.0.0.1:18081"
-$env:METRICS_ADDR="127.0.0.1:19091"
-go run ./cmd/server
+docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
 ```
 
 ## RESTful API
 
-RESTful 接口主要用于本地调试、脚本演示和面试展示。请求和响应均使用 JSON。
+RESTful 接口主要用于本地调试、脚本验证和服务联调。请求和响应均使用 JSON。
 
 ### 健康检查
 
@@ -510,6 +511,7 @@ go run ./cmd/roomserver
 |---|---|---|
 | `ROOM_SERVER_ID` | `demo-room-1` | 注册到 CoreRank 的 server id |
 | `ROOM_SERVER_ADDR` | `127.0.0.1:7001` | TCP 监听地址，也是匹配结果中的 `ServerAddr` |
+| `ROOM_SERVER_PUBLIC_ADDR` | 默认使用 `ROOM_SERVER_ADDR` | 注册到 gateway 的客户端可访问地址 |
 | `CORE_RANK_HTTP` | `http://127.0.0.1:8081` | CoreRank RESTful API 地址 |
 | `MATCH_MODE` | `duel` | 当前 roomserver 承接的匹配模式 |
 | `CAPACITY` | `8` | 可承接玩家槽位数 |

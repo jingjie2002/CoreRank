@@ -396,6 +396,8 @@ type MatchResult struct {
 	PlayerIds     []string               `protobuf:"bytes,4,rep,name=player_ids,json=playerIds,proto3" json:"player_ids,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ServerId      string                 `protobuf:"bytes,7,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerAddr    string                 `protobuf:"bytes,8,opt,name=server_addr,json=serverAddr,proto3" json:"server_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -472,6 +474,137 @@ func (x *MatchResult) GetCreatedAt() int64 {
 	return 0
 }
 
+func (x *MatchResult) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *MatchResult) GetServerAddr() string {
+	if x != nil {
+		return x.ServerAddr
+	}
+	return ""
+}
+
+// GameServer 房间/战斗服务器状态
+type GameServer struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServerId        string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerType      string                 `protobuf:"bytes,2,opt,name=server_type,json=serverType,proto3" json:"server_type,omitempty"`
+	Addr            string                 `protobuf:"bytes,3,opt,name=addr,proto3" json:"addr,omitempty"`
+	Region          string                 `protobuf:"bytes,4,opt,name=region,proto3" json:"region,omitempty"`
+	MatchMode       string                 `protobuf:"bytes,5,opt,name=match_mode,json=matchMode,proto3" json:"match_mode,omitempty"`
+	Capacity        int64                  `protobuf:"varint,6,opt,name=capacity,proto3" json:"capacity,omitempty"`
+	CurrentLoad     int64                  `protobuf:"varint,7,opt,name=current_load,json=currentLoad,proto3" json:"current_load,omitempty"`
+	Status          string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	LastHeartbeatAt int64                  `protobuf:"varint,9,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3" json:"last_heartbeat_at,omitempty"`
+	UpdatedAt       int64                  `protobuf:"varint,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GameServer) Reset() {
+	*x = GameServer{}
+	mi := &file_api_proto_rank_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GameServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GameServer) ProtoMessage() {}
+
+func (x *GameServer) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GameServer.ProtoReflect.Descriptor instead.
+func (*GameServer) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GameServer) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *GameServer) GetServerType() string {
+	if x != nil {
+		return x.ServerType
+	}
+	return ""
+}
+
+func (x *GameServer) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *GameServer) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *GameServer) GetMatchMode() string {
+	if x != nil {
+		return x.MatchMode
+	}
+	return ""
+}
+
+func (x *GameServer) GetCapacity() int64 {
+	if x != nil {
+		return x.Capacity
+	}
+	return 0
+}
+
+func (x *GameServer) GetCurrentLoad() int64 {
+	if x != nil {
+		return x.CurrentLoad
+	}
+	return 0
+}
+
+func (x *GameServer) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GameServer) GetLastHeartbeatAt() int64 {
+	if x != nil {
+		return x.LastHeartbeatAt
+	}
+	return 0
+}
+
+func (x *GameServer) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
 // CreateMatchTicketRequest 创建匹配票据请求
 type CreateMatchTicketRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -485,7 +618,7 @@ type CreateMatchTicketRequest struct {
 
 func (x *CreateMatchTicketRequest) Reset() {
 	*x = CreateMatchTicketRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[5]
+	mi := &file_api_proto_rank_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +630,7 @@ func (x *CreateMatchTicketRequest) String() string {
 func (*CreateMatchTicketRequest) ProtoMessage() {}
 
 func (x *CreateMatchTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[5]
+	mi := &file_api_proto_rank_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +643,7 @@ func (x *CreateMatchTicketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchTicketRequest.ProtoReflect.Descriptor instead.
 func (*CreateMatchTicketRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{5}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateMatchTicketRequest) GetPlayerId() string {
@@ -551,7 +684,7 @@ type CreateMatchTicketResponse struct {
 
 func (x *CreateMatchTicketResponse) Reset() {
 	*x = CreateMatchTicketResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[6]
+	mi := &file_api_proto_rank_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +696,7 @@ func (x *CreateMatchTicketResponse) String() string {
 func (*CreateMatchTicketResponse) ProtoMessage() {}
 
 func (x *CreateMatchTicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[6]
+	mi := &file_api_proto_rank_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +709,7 @@ func (x *CreateMatchTicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchTicketResponse.ProtoReflect.Descriptor instead.
 func (*CreateMatchTicketResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateMatchTicketResponse) GetTicket() *MatchTicket {
@@ -596,7 +729,7 @@ type GetMatchTicketRequest struct {
 
 func (x *GetMatchTicketRequest) Reset() {
 	*x = GetMatchTicketRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[7]
+	mi := &file_api_proto_rank_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -608,7 +741,7 @@ func (x *GetMatchTicketRequest) String() string {
 func (*GetMatchTicketRequest) ProtoMessage() {}
 
 func (x *GetMatchTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[7]
+	mi := &file_api_proto_rank_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -621,7 +754,7 @@ func (x *GetMatchTicketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMatchTicketRequest.ProtoReflect.Descriptor instead.
 func (*GetMatchTicketRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetMatchTicketRequest) GetTicketId() string {
@@ -641,7 +774,7 @@ type GetMatchTicketResponse struct {
 
 func (x *GetMatchTicketResponse) Reset() {
 	*x = GetMatchTicketResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[8]
+	mi := &file_api_proto_rank_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -653,7 +786,7 @@ func (x *GetMatchTicketResponse) String() string {
 func (*GetMatchTicketResponse) ProtoMessage() {}
 
 func (x *GetMatchTicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[8]
+	mi := &file_api_proto_rank_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,7 +799,7 @@ func (x *GetMatchTicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMatchTicketResponse.ProtoReflect.Descriptor instead.
 func (*GetMatchTicketResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{8}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetMatchTicketResponse) GetTicket() *MatchTicket {
@@ -686,7 +819,7 @@ type CancelMatchTicketRequest struct {
 
 func (x *CancelMatchTicketRequest) Reset() {
 	*x = CancelMatchTicketRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[9]
+	mi := &file_api_proto_rank_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -698,7 +831,7 @@ func (x *CancelMatchTicketRequest) String() string {
 func (*CancelMatchTicketRequest) ProtoMessage() {}
 
 func (x *CancelMatchTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[9]
+	mi := &file_api_proto_rank_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -711,7 +844,7 @@ func (x *CancelMatchTicketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelMatchTicketRequest.ProtoReflect.Descriptor instead.
 func (*CancelMatchTicketRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{9}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CancelMatchTicketRequest) GetTicketId() string {
@@ -731,7 +864,7 @@ type CancelMatchTicketResponse struct {
 
 func (x *CancelMatchTicketResponse) Reset() {
 	*x = CancelMatchTicketResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[10]
+	mi := &file_api_proto_rank_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -743,7 +876,7 @@ func (x *CancelMatchTicketResponse) String() string {
 func (*CancelMatchTicketResponse) ProtoMessage() {}
 
 func (x *CancelMatchTicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[10]
+	mi := &file_api_proto_rank_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +889,7 @@ func (x *CancelMatchTicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelMatchTicketResponse.ProtoReflect.Descriptor instead.
 func (*CancelMatchTicketResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{10}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CancelMatchTicketResponse) GetTicket() *MatchTicket {
@@ -776,7 +909,7 @@ type GetMatchResultRequest struct {
 
 func (x *GetMatchResultRequest) Reset() {
 	*x = GetMatchResultRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[11]
+	mi := &file_api_proto_rank_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -788,7 +921,7 @@ func (x *GetMatchResultRequest) String() string {
 func (*GetMatchResultRequest) ProtoMessage() {}
 
 func (x *GetMatchResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[11]
+	mi := &file_api_proto_rank_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -801,7 +934,7 @@ func (x *GetMatchResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMatchResultRequest.ProtoReflect.Descriptor instead.
 func (*GetMatchResultRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{11}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetMatchResultRequest) GetMatchId() string {
@@ -821,7 +954,7 @@ type GetMatchResultResponse struct {
 
 func (x *GetMatchResultResponse) Reset() {
 	*x = GetMatchResultResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[12]
+	mi := &file_api_proto_rank_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +966,7 @@ func (x *GetMatchResultResponse) String() string {
 func (*GetMatchResultResponse) ProtoMessage() {}
 
 func (x *GetMatchResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[12]
+	mi := &file_api_proto_rank_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,12 +979,306 @@ func (x *GetMatchResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMatchResultResponse.ProtoReflect.Descriptor instead.
 func (*GetMatchResultResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{12}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetMatchResultResponse) GetResult() *MatchResult {
 	if x != nil {
 		return x.Result
+	}
+	return nil
+}
+
+// RegisterGameServerRequest 注册房间/战斗服务器请求
+type RegisterGameServerRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *GameServer            `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterGameServerRequest) Reset() {
+	*x = RegisterGameServerRequest{}
+	mi := &file_api_proto_rank_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterGameServerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterGameServerRequest) ProtoMessage() {}
+
+func (x *RegisterGameServerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterGameServerRequest.ProtoReflect.Descriptor instead.
+func (*RegisterGameServerRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RegisterGameServerRequest) GetServer() *GameServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+// RegisterGameServerResponse 注册房间/战斗服务器响应
+type RegisterGameServerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *GameServer            `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterGameServerResponse) Reset() {
+	*x = RegisterGameServerResponse{}
+	mi := &file_api_proto_rank_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterGameServerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterGameServerResponse) ProtoMessage() {}
+
+func (x *RegisterGameServerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterGameServerResponse.ProtoReflect.Descriptor instead.
+func (*RegisterGameServerResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RegisterGameServerResponse) GetServer() *GameServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+// HeartbeatGameServerRequest 房间/战斗服务器心跳请求
+type HeartbeatGameServerRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ServerId          string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	Status            string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	CurrentLoad       int64                  `protobuf:"varint,3,opt,name=current_load,json=currentLoad,proto3" json:"current_load,omitempty"`
+	UpdateCurrentLoad bool                   `protobuf:"varint,4,opt,name=update_current_load,json=updateCurrentLoad,proto3" json:"update_current_load,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *HeartbeatGameServerRequest) Reset() {
+	*x = HeartbeatGameServerRequest{}
+	mi := &file_api_proto_rank_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatGameServerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatGameServerRequest) ProtoMessage() {}
+
+func (x *HeartbeatGameServerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatGameServerRequest.ProtoReflect.Descriptor instead.
+func (*HeartbeatGameServerRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *HeartbeatGameServerRequest) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *HeartbeatGameServerRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HeartbeatGameServerRequest) GetCurrentLoad() int64 {
+	if x != nil {
+		return x.CurrentLoad
+	}
+	return 0
+}
+
+func (x *HeartbeatGameServerRequest) GetUpdateCurrentLoad() bool {
+	if x != nil {
+		return x.UpdateCurrentLoad
+	}
+	return false
+}
+
+// HeartbeatGameServerResponse 房间/战斗服务器心跳响应
+type HeartbeatGameServerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *GameServer            `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatGameServerResponse) Reset() {
+	*x = HeartbeatGameServerResponse{}
+	mi := &file_api_proto_rank_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatGameServerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatGameServerResponse) ProtoMessage() {}
+
+func (x *HeartbeatGameServerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatGameServerResponse.ProtoReflect.Descriptor instead.
+func (*HeartbeatGameServerResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *HeartbeatGameServerResponse) GetServer() *GameServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+// ListGameServersRequest 查询房间/战斗服务器请求
+type ListGameServersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MatchMode     string                 `protobuf:"bytes,1,opt,name=match_mode,json=matchMode,proto3" json:"match_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGameServersRequest) Reset() {
+	*x = ListGameServersRequest{}
+	mi := &file_api_proto_rank_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGameServersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGameServersRequest) ProtoMessage() {}
+
+func (x *ListGameServersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGameServersRequest.ProtoReflect.Descriptor instead.
+func (*ListGameServersRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListGameServersRequest) GetMatchMode() string {
+	if x != nil {
+		return x.MatchMode
+	}
+	return ""
+}
+
+// ListGameServersResponse 查询房间/战斗服务器响应
+type ListGameServersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Servers       []*GameServer          `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListGameServersResponse) Reset() {
+	*x = ListGameServersResponse{}
+	mi := &file_api_proto_rank_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListGameServersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListGameServersResponse) ProtoMessage() {}
+
+func (x *ListGameServersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListGameServersResponse.ProtoReflect.Descriptor instead.
+func (*ListGameServersResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListGameServersResponse) GetServers() []*GameServer {
+	if x != nil {
+		return x.Servers
 	}
 	return nil
 }
@@ -864,14 +1291,16 @@ type UpdateScoreRequest struct {
 	// 新的排行榜分数
 	NewScore int64 `protobuf:"varint,2,opt,name=new_score,json=newScore,proto3" json:"new_score,omitempty"`
 	// 分数变化类型：ABSOLUTE（绝对值）/ INCREMENT（增量）
-	ChangeType    string `protobuf:"bytes,3,opt,name=change_type,json=changeType,proto3" json:"change_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ChangeType string `protobuf:"bytes,3,opt,name=change_type,json=changeType,proto3" json:"change_type,omitempty"`
+	// 排行榜类型/维度（为空时使用全局榜）
+	LeaderboardType string `protobuf:"bytes,4,opt,name=leaderboard_type,json=leaderboardType,proto3" json:"leaderboard_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdateScoreRequest) Reset() {
 	*x = UpdateScoreRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[13]
+	mi := &file_api_proto_rank_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -883,7 +1312,7 @@ func (x *UpdateScoreRequest) String() string {
 func (*UpdateScoreRequest) ProtoMessage() {}
 
 func (x *UpdateScoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[13]
+	mi := &file_api_proto_rank_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -896,7 +1325,7 @@ func (x *UpdateScoreRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScoreRequest.ProtoReflect.Descriptor instead.
 func (*UpdateScoreRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{13}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *UpdateScoreRequest) GetPlayerId() string {
@@ -920,6 +1349,13 @@ func (x *UpdateScoreRequest) GetChangeType() string {
 	return ""
 }
 
+func (x *UpdateScoreRequest) GetLeaderboardType() string {
+	if x != nil {
+		return x.LeaderboardType
+	}
+	return ""
+}
+
 // UpdateScoreResponse 更新分数响应
 type UpdateScoreResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -935,7 +1371,7 @@ type UpdateScoreResponse struct {
 
 func (x *UpdateScoreResponse) Reset() {
 	*x = UpdateScoreResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[14]
+	mi := &file_api_proto_rank_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -947,7 +1383,7 @@ func (x *UpdateScoreResponse) String() string {
 func (*UpdateScoreResponse) ProtoMessage() {}
 
 func (x *UpdateScoreResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[14]
+	mi := &file_api_proto_rank_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -960,7 +1396,7 @@ func (x *UpdateScoreResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateScoreResponse.ProtoReflect.Descriptor instead.
 func (*UpdateScoreResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{14}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *UpdateScoreResponse) GetSuccess() bool {
@@ -999,7 +1435,7 @@ type GetTopRankRequest struct {
 
 func (x *GetTopRankRequest) Reset() {
 	*x = GetTopRankRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[15]
+	mi := &file_api_proto_rank_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1011,7 +1447,7 @@ func (x *GetTopRankRequest) String() string {
 func (*GetTopRankRequest) ProtoMessage() {}
 
 func (x *GetTopRankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[15]
+	mi := &file_api_proto_rank_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1024,7 +1460,7 @@ func (x *GetTopRankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTopRankRequest.ProtoReflect.Descriptor instead.
 func (*GetTopRankRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{15}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetTopRankRequest) GetLeaderboardType() string {
@@ -1063,7 +1499,7 @@ type GetTopRankResponse struct {
 
 func (x *GetTopRankResponse) Reset() {
 	*x = GetTopRankResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[16]
+	mi := &file_api_proto_rank_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1075,7 +1511,7 @@ func (x *GetTopRankResponse) String() string {
 func (*GetTopRankResponse) ProtoMessage() {}
 
 func (x *GetTopRankResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[16]
+	mi := &file_api_proto_rank_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1088,7 +1524,7 @@ func (x *GetTopRankResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTopRankResponse.ProtoReflect.Descriptor instead.
 func (*GetTopRankResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{16}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetTopRankResponse) GetEntries() []*RankEntry {
@@ -1112,6 +1548,125 @@ func (x *GetTopRankResponse) GetUpdatedAt() int64 {
 	return 0
 }
 
+// GetPlayerRankRequest 查询玩家排名请求
+type GetPlayerRankRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 玩家 ID
+	PlayerId string `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	// 排行榜类型/维度（为空时使用全局榜）
+	LeaderboardType string `protobuf:"bytes,2,opt,name=leaderboard_type,json=leaderboardType,proto3" json:"leaderboard_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetPlayerRankRequest) Reset() {
+	*x = GetPlayerRankRequest{}
+	mi := &file_api_proto_rank_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPlayerRankRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPlayerRankRequest) ProtoMessage() {}
+
+func (x *GetPlayerRankRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPlayerRankRequest.ProtoReflect.Descriptor instead.
+func (*GetPlayerRankRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GetPlayerRankRequest) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+func (x *GetPlayerRankRequest) GetLeaderboardType() string {
+	if x != nil {
+		return x.LeaderboardType
+	}
+	return ""
+}
+
+// GetPlayerRankResponse 查询玩家排名响应
+type GetPlayerRankResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 是否找到玩家
+	Found bool `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	// 玩家信息
+	Player *Player `protobuf:"bytes,2,opt,name=player,proto3" json:"player,omitempty"`
+	// 当前在排行榜中的排名（1-based）
+	CurrentRank   int64 `protobuf:"varint,3,opt,name=current_rank,json=currentRank,proto3" json:"current_rank,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPlayerRankResponse) Reset() {
+	*x = GetPlayerRankResponse{}
+	mi := &file_api_proto_rank_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPlayerRankResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPlayerRankResponse) ProtoMessage() {}
+
+func (x *GetPlayerRankResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPlayerRankResponse.ProtoReflect.Descriptor instead.
+func (*GetPlayerRankResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetPlayerRankResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *GetPlayerRankResponse) GetPlayer() *Player {
+	if x != nil {
+		return x.Player
+	}
+	return nil
+}
+
+func (x *GetPlayerRankResponse) GetCurrentRank() int64 {
+	if x != nil {
+		return x.CurrentRank
+	}
+	return 0
+}
+
 // RankEntry 排行榜条目
 type RankEntry struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1125,7 +1680,7 @@ type RankEntry struct {
 
 func (x *RankEntry) Reset() {
 	*x = RankEntry{}
-	mi := &file_api_proto_rank_proto_msgTypes[17]
+	mi := &file_api_proto_rank_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1692,7 @@ func (x *RankEntry) String() string {
 func (*RankEntry) ProtoMessage() {}
 
 func (x *RankEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[17]
+	mi := &file_api_proto_rank_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1150,7 +1705,7 @@ func (x *RankEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RankEntry.ProtoReflect.Descriptor instead.
 func (*RankEntry) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{17}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RankEntry) GetRank() int64 {
@@ -1206,7 +1761,7 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\x03R\tupdatedAt\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\n" +
-	" \x01(\x03R\texpiresAt\"\xb6\x01\n" +
+	" \x01(\x03R\texpiresAt\"\xf4\x01\n" +
 	"\vMatchResult\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x17\n" +
 	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x1d\n" +
@@ -1216,7 +1771,26 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"player_ids\x18\x04 \x03(\tR\tplayerIds\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\x03R\tcreatedAt\"\x93\x01\n" +
+	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1b\n" +
+	"\tserver_id\x18\a \x01(\tR\bserverId\x12\x1f\n" +
+	"\vserver_addr\x18\b \x01(\tR\n" +
+	"serverAddr\"\xb7\x02\n" +
+	"\n" +
+	"GameServer\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
+	"\vserver_type\x18\x02 \x01(\tR\n" +
+	"serverType\x12\x12\n" +
+	"\x04addr\x18\x03 \x01(\tR\x04addr\x12\x16\n" +
+	"\x06region\x18\x04 \x01(\tR\x06region\x12\x1d\n" +
+	"\n" +
+	"match_mode\x18\x05 \x01(\tR\tmatchMode\x12\x1a\n" +
+	"\bcapacity\x18\x06 \x01(\x03R\bcapacity\x12!\n" +
+	"\fcurrent_load\x18\a \x01(\x03R\vcurrentLoad\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12*\n" +
+	"\x11last_heartbeat_at\x18\t \x01(\x03R\x0flastHeartbeatAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\n" +
+	" \x01(\x03R\tupdatedAt\"\x93\x01\n" +
 	"\x18CreateMatchTicketRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1b\n" +
 	"\tmmr_score\x18\x02 \x01(\x03R\bmmrScore\x12\x1d\n" +
@@ -1236,12 +1810,29 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\x15GetMatchResultRequest\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\"J\n" +
 	"\x16GetMatchResultResponse\x120\n" +
-	"\x06result\x18\x01 \x01(\v2\x18.corerank.v1.MatchResultR\x06result\"o\n" +
+	"\x06result\x18\x01 \x01(\v2\x18.corerank.v1.MatchResultR\x06result\"L\n" +
+	"\x19RegisterGameServerRequest\x12/\n" +
+	"\x06server\x18\x01 \x01(\v2\x17.corerank.v1.GameServerR\x06server\"M\n" +
+	"\x1aRegisterGameServerResponse\x12/\n" +
+	"\x06server\x18\x01 \x01(\v2\x17.corerank.v1.GameServerR\x06server\"\xa4\x01\n" +
+	"\x1aHeartbeatGameServerRequest\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
+	"\fcurrent_load\x18\x03 \x01(\x03R\vcurrentLoad\x12.\n" +
+	"\x13update_current_load\x18\x04 \x01(\bR\x11updateCurrentLoad\"N\n" +
+	"\x1bHeartbeatGameServerResponse\x12/\n" +
+	"\x06server\x18\x01 \x01(\v2\x17.corerank.v1.GameServerR\x06server\"7\n" +
+	"\x16ListGameServersRequest\x12\x1d\n" +
+	"\n" +
+	"match_mode\x18\x01 \x01(\tR\tmatchMode\"L\n" +
+	"\x17ListGameServersResponse\x121\n" +
+	"\aservers\x18\x01 \x03(\v2\x17.corerank.v1.GameServerR\aservers\"\x9a\x01\n" +
 	"\x12UpdateScoreRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1b\n" +
 	"\tnew_score\x18\x02 \x01(\x03R\bnewScore\x12\x1f\n" +
 	"\vchange_type\x18\x03 \x01(\tR\n" +
-	"changeType\"\x7f\n" +
+	"changeType\x12)\n" +
+	"\x10leaderboard_type\x18\x04 \x01(\tR\x0fleaderboardType\"\x7f\n" +
 	"\x13UpdateScoreResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12+\n" +
 	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player\x12!\n" +
@@ -1254,19 +1845,30 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\aentries\x18\x01 \x03(\v2\x16.corerank.v1.RankEntryR\aentries\x12#\n" +
 	"\rtotal_players\x18\x02 \x01(\x03R\ftotalPlayers\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"L\n" +
+	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"^\n" +
+	"\x14GetPlayerRankRequest\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12)\n" +
+	"\x10leaderboard_type\x18\x02 \x01(\tR\x0fleaderboardType\"}\n" +
+	"\x15GetPlayerRankResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12+\n" +
+	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player\x12!\n" +
+	"\fcurrent_rank\x18\x03 \x01(\x03R\vcurrentRank\"L\n" +
 	"\tRankEntry\x12\x12\n" +
 	"\x04rank\x18\x01 \x01(\x03R\x04rank\x12+\n" +
-	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player2\xae\x01\n" +
+	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player2\x86\x02\n" +
 	"\vRankService\x12P\n" +
 	"\vUpdateScore\x12\x1f.corerank.v1.UpdateScoreRequest\x1a .corerank.v1.UpdateScoreResponse\x12M\n" +
 	"\n" +
-	"GetTopRank\x12\x1e.corerank.v1.GetTopRankRequest\x1a\x1f.corerank.v1.GetTopRankResponse2\x8c\x03\n" +
+	"GetTopRank\x12\x1e.corerank.v1.GetTopRankRequest\x1a\x1f.corerank.v1.GetTopRankResponse\x12V\n" +
+	"\rGetPlayerRank\x12!.corerank.v1.GetPlayerRankRequest\x1a\".corerank.v1.GetPlayerRankResponse2\xbb\x05\n" +
 	"\fMatchService\x12b\n" +
 	"\x11CreateMatchTicket\x12%.corerank.v1.CreateMatchTicketRequest\x1a&.corerank.v1.CreateMatchTicketResponse\x12Y\n" +
 	"\x0eGetMatchTicket\x12\".corerank.v1.GetMatchTicketRequest\x1a#.corerank.v1.GetMatchTicketResponse\x12b\n" +
 	"\x11CancelMatchTicket\x12%.corerank.v1.CancelMatchTicketRequest\x1a&.corerank.v1.CancelMatchTicketResponse\x12Y\n" +
-	"\x0eGetMatchResult\x12\".corerank.v1.GetMatchResultRequest\x1a#.corerank.v1.GetMatchResultResponseB\x1aZ\x18CoreRank/api/proto;protob\x06proto3"
+	"\x0eGetMatchResult\x12\".corerank.v1.GetMatchResultRequest\x1a#.corerank.v1.GetMatchResultResponse\x12e\n" +
+	"\x12RegisterGameServer\x12&.corerank.v1.RegisterGameServerRequest\x1a'.corerank.v1.RegisterGameServerResponse\x12h\n" +
+	"\x13HeartbeatGameServer\x12'.corerank.v1.HeartbeatGameServerRequest\x1a(.corerank.v1.HeartbeatGameServerResponse\x12\\\n" +
+	"\x0fListGameServers\x12#.corerank.v1.ListGameServersRequest\x1a$.corerank.v1.ListGameServersResponseB\x1aZ\x18CoreRank/api/proto;protob\x06proto3"
 
 var (
 	file_api_proto_rank_proto_rawDescOnce sync.Once
@@ -1280,26 +1882,35 @@ func file_api_proto_rank_proto_rawDescGZIP() []byte {
 	return file_api_proto_rank_proto_rawDescData
 }
 
-var file_api_proto_rank_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_api_proto_rank_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_api_proto_rank_proto_goTypes = []any{
-	(*Player)(nil),                    // 0: corerank.v1.Player
-	(*MatchRequest)(nil),              // 1: corerank.v1.MatchRequest
-	(*MatchResponse)(nil),             // 2: corerank.v1.MatchResponse
-	(*MatchTicket)(nil),               // 3: corerank.v1.MatchTicket
-	(*MatchResult)(nil),               // 4: corerank.v1.MatchResult
-	(*CreateMatchTicketRequest)(nil),  // 5: corerank.v1.CreateMatchTicketRequest
-	(*CreateMatchTicketResponse)(nil), // 6: corerank.v1.CreateMatchTicketResponse
-	(*GetMatchTicketRequest)(nil),     // 7: corerank.v1.GetMatchTicketRequest
-	(*GetMatchTicketResponse)(nil),    // 8: corerank.v1.GetMatchTicketResponse
-	(*CancelMatchTicketRequest)(nil),  // 9: corerank.v1.CancelMatchTicketRequest
-	(*CancelMatchTicketResponse)(nil), // 10: corerank.v1.CancelMatchTicketResponse
-	(*GetMatchResultRequest)(nil),     // 11: corerank.v1.GetMatchResultRequest
-	(*GetMatchResultResponse)(nil),    // 12: corerank.v1.GetMatchResultResponse
-	(*UpdateScoreRequest)(nil),        // 13: corerank.v1.UpdateScoreRequest
-	(*UpdateScoreResponse)(nil),       // 14: corerank.v1.UpdateScoreResponse
-	(*GetTopRankRequest)(nil),         // 15: corerank.v1.GetTopRankRequest
-	(*GetTopRankResponse)(nil),        // 16: corerank.v1.GetTopRankResponse
-	(*RankEntry)(nil),                 // 17: corerank.v1.RankEntry
+	(*Player)(nil),                      // 0: corerank.v1.Player
+	(*MatchRequest)(nil),                // 1: corerank.v1.MatchRequest
+	(*MatchResponse)(nil),               // 2: corerank.v1.MatchResponse
+	(*MatchTicket)(nil),                 // 3: corerank.v1.MatchTicket
+	(*MatchResult)(nil),                 // 4: corerank.v1.MatchResult
+	(*GameServer)(nil),                  // 5: corerank.v1.GameServer
+	(*CreateMatchTicketRequest)(nil),    // 6: corerank.v1.CreateMatchTicketRequest
+	(*CreateMatchTicketResponse)(nil),   // 7: corerank.v1.CreateMatchTicketResponse
+	(*GetMatchTicketRequest)(nil),       // 8: corerank.v1.GetMatchTicketRequest
+	(*GetMatchTicketResponse)(nil),      // 9: corerank.v1.GetMatchTicketResponse
+	(*CancelMatchTicketRequest)(nil),    // 10: corerank.v1.CancelMatchTicketRequest
+	(*CancelMatchTicketResponse)(nil),   // 11: corerank.v1.CancelMatchTicketResponse
+	(*GetMatchResultRequest)(nil),       // 12: corerank.v1.GetMatchResultRequest
+	(*GetMatchResultResponse)(nil),      // 13: corerank.v1.GetMatchResultResponse
+	(*RegisterGameServerRequest)(nil),   // 14: corerank.v1.RegisterGameServerRequest
+	(*RegisterGameServerResponse)(nil),  // 15: corerank.v1.RegisterGameServerResponse
+	(*HeartbeatGameServerRequest)(nil),  // 16: corerank.v1.HeartbeatGameServerRequest
+	(*HeartbeatGameServerResponse)(nil), // 17: corerank.v1.HeartbeatGameServerResponse
+	(*ListGameServersRequest)(nil),      // 18: corerank.v1.ListGameServersRequest
+	(*ListGameServersResponse)(nil),     // 19: corerank.v1.ListGameServersResponse
+	(*UpdateScoreRequest)(nil),          // 20: corerank.v1.UpdateScoreRequest
+	(*UpdateScoreResponse)(nil),         // 21: corerank.v1.UpdateScoreResponse
+	(*GetTopRankRequest)(nil),           // 22: corerank.v1.GetTopRankRequest
+	(*GetTopRankResponse)(nil),          // 23: corerank.v1.GetTopRankResponse
+	(*GetPlayerRankRequest)(nil),        // 24: corerank.v1.GetPlayerRankRequest
+	(*GetPlayerRankResponse)(nil),       // 25: corerank.v1.GetPlayerRankResponse
+	(*RankEntry)(nil),                   // 26: corerank.v1.RankEntry
 }
 var file_api_proto_rank_proto_depIdxs = []int32{
 	0,  // 0: corerank.v1.MatchResponse.opponents:type_name -> corerank.v1.Player
@@ -1307,26 +1918,39 @@ var file_api_proto_rank_proto_depIdxs = []int32{
 	3,  // 2: corerank.v1.GetMatchTicketResponse.ticket:type_name -> corerank.v1.MatchTicket
 	3,  // 3: corerank.v1.CancelMatchTicketResponse.ticket:type_name -> corerank.v1.MatchTicket
 	4,  // 4: corerank.v1.GetMatchResultResponse.result:type_name -> corerank.v1.MatchResult
-	0,  // 5: corerank.v1.UpdateScoreResponse.player:type_name -> corerank.v1.Player
-	17, // 6: corerank.v1.GetTopRankResponse.entries:type_name -> corerank.v1.RankEntry
-	0,  // 7: corerank.v1.RankEntry.player:type_name -> corerank.v1.Player
-	13, // 8: corerank.v1.RankService.UpdateScore:input_type -> corerank.v1.UpdateScoreRequest
-	15, // 9: corerank.v1.RankService.GetTopRank:input_type -> corerank.v1.GetTopRankRequest
-	5,  // 10: corerank.v1.MatchService.CreateMatchTicket:input_type -> corerank.v1.CreateMatchTicketRequest
-	7,  // 11: corerank.v1.MatchService.GetMatchTicket:input_type -> corerank.v1.GetMatchTicketRequest
-	9,  // 12: corerank.v1.MatchService.CancelMatchTicket:input_type -> corerank.v1.CancelMatchTicketRequest
-	11, // 13: corerank.v1.MatchService.GetMatchResult:input_type -> corerank.v1.GetMatchResultRequest
-	14, // 14: corerank.v1.RankService.UpdateScore:output_type -> corerank.v1.UpdateScoreResponse
-	16, // 15: corerank.v1.RankService.GetTopRank:output_type -> corerank.v1.GetTopRankResponse
-	6,  // 16: corerank.v1.MatchService.CreateMatchTicket:output_type -> corerank.v1.CreateMatchTicketResponse
-	8,  // 17: corerank.v1.MatchService.GetMatchTicket:output_type -> corerank.v1.GetMatchTicketResponse
-	10, // 18: corerank.v1.MatchService.CancelMatchTicket:output_type -> corerank.v1.CancelMatchTicketResponse
-	12, // 19: corerank.v1.MatchService.GetMatchResult:output_type -> corerank.v1.GetMatchResultResponse
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	5,  // 5: corerank.v1.RegisterGameServerRequest.server:type_name -> corerank.v1.GameServer
+	5,  // 6: corerank.v1.RegisterGameServerResponse.server:type_name -> corerank.v1.GameServer
+	5,  // 7: corerank.v1.HeartbeatGameServerResponse.server:type_name -> corerank.v1.GameServer
+	5,  // 8: corerank.v1.ListGameServersResponse.servers:type_name -> corerank.v1.GameServer
+	0,  // 9: corerank.v1.UpdateScoreResponse.player:type_name -> corerank.v1.Player
+	26, // 10: corerank.v1.GetTopRankResponse.entries:type_name -> corerank.v1.RankEntry
+	0,  // 11: corerank.v1.GetPlayerRankResponse.player:type_name -> corerank.v1.Player
+	0,  // 12: corerank.v1.RankEntry.player:type_name -> corerank.v1.Player
+	20, // 13: corerank.v1.RankService.UpdateScore:input_type -> corerank.v1.UpdateScoreRequest
+	22, // 14: corerank.v1.RankService.GetTopRank:input_type -> corerank.v1.GetTopRankRequest
+	24, // 15: corerank.v1.RankService.GetPlayerRank:input_type -> corerank.v1.GetPlayerRankRequest
+	6,  // 16: corerank.v1.MatchService.CreateMatchTicket:input_type -> corerank.v1.CreateMatchTicketRequest
+	8,  // 17: corerank.v1.MatchService.GetMatchTicket:input_type -> corerank.v1.GetMatchTicketRequest
+	10, // 18: corerank.v1.MatchService.CancelMatchTicket:input_type -> corerank.v1.CancelMatchTicketRequest
+	12, // 19: corerank.v1.MatchService.GetMatchResult:input_type -> corerank.v1.GetMatchResultRequest
+	14, // 20: corerank.v1.MatchService.RegisterGameServer:input_type -> corerank.v1.RegisterGameServerRequest
+	16, // 21: corerank.v1.MatchService.HeartbeatGameServer:input_type -> corerank.v1.HeartbeatGameServerRequest
+	18, // 22: corerank.v1.MatchService.ListGameServers:input_type -> corerank.v1.ListGameServersRequest
+	21, // 23: corerank.v1.RankService.UpdateScore:output_type -> corerank.v1.UpdateScoreResponse
+	23, // 24: corerank.v1.RankService.GetTopRank:output_type -> corerank.v1.GetTopRankResponse
+	25, // 25: corerank.v1.RankService.GetPlayerRank:output_type -> corerank.v1.GetPlayerRankResponse
+	7,  // 26: corerank.v1.MatchService.CreateMatchTicket:output_type -> corerank.v1.CreateMatchTicketResponse
+	9,  // 27: corerank.v1.MatchService.GetMatchTicket:output_type -> corerank.v1.GetMatchTicketResponse
+	11, // 28: corerank.v1.MatchService.CancelMatchTicket:output_type -> corerank.v1.CancelMatchTicketResponse
+	13, // 29: corerank.v1.MatchService.GetMatchResult:output_type -> corerank.v1.GetMatchResultResponse
+	15, // 30: corerank.v1.MatchService.RegisterGameServer:output_type -> corerank.v1.RegisterGameServerResponse
+	17, // 31: corerank.v1.MatchService.HeartbeatGameServer:output_type -> corerank.v1.HeartbeatGameServerResponse
+	19, // 32: corerank.v1.MatchService.ListGameServers:output_type -> corerank.v1.ListGameServersResponse
+	23, // [23:33] is the sub-list for method output_type
+	13, // [13:23] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_rank_proto_init() }
@@ -1340,7 +1964,7 @@ func file_api_proto_rank_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_rank_proto_rawDesc), len(file_api_proto_rank_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

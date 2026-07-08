@@ -11,11 +11,15 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/metrics"
 	"CoreRank/internal/service"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // RankHandler 排行榜 gRPC 服务处理器
@@ -78,12 +82,20 @@ func (h *RankHandler) UpdateScore(ctx context.Context, req *pb.UpdateScoreReques
 	// ========================================================================
 	// 第三步：调用 Service 层
 	// ========================================================================
-	err := h.rankService.UpdatePlayerScore(ctx, req.GetPlayerId(), float64(req.GetNewScore()))
+	err := h.rankService.UpdatePlayerScoreInLeaderboard(ctx, req.GetLeaderboardType(), req.GetPlayerId(), float64(req.GetNewScore()))
 	if err != nil {
 		metrics.RecordRequest("UpdateScore", "error")
 		return &pb.UpdateScoreResponse{
 			Success: false,
-		}, err
+		}, rankError(err)
+	}
+
+	player, err := h.rankService.GetPlayerRankInLeaderboard(ctx, req.GetLeaderboardType(), req.GetPlayerId())
+	if err != nil {
+		metrics.RecordRequest("UpdateScore", "error")
+		return &pb.UpdateScoreResponse{
+			Success: false,
+		}, rankError(err)
 	}
 
 	// ========================================================================
@@ -97,6 +109,7 @@ func (h *RankHandler) UpdateScore(ctx context.Context, req *pb.UpdateScoreReques
 			PlayerId:  req.GetPlayerId(),
 			RankScore: req.GetNewScore(),
 		},
+		CurrentRank: rankFromPlayerInfo(player),
 	}, nil
 }
 
@@ -123,10 +136,10 @@ func (h *RankHandler) GetTopRank(ctx context.Context, req *pb.GetTopRankRequest)
 	}
 
 	// 调用 Service 层获取排行榜数据
-	players, err := h.rankService.GetTopPlayers(ctx, topN)
+	players, err := h.rankService.GetTopPlayersInLeaderboard(ctx, req.GetLeaderboardType(), topN)
 	if err != nil {
 		metrics.RecordRequest("GetTopRank", "error")
-		return nil, err
+		return nil, rankError(err)
 	}
 
 	// 构造响应
@@ -144,7 +157,44 @@ func (h *RankHandler) GetTopRank(ctx context.Context, req *pb.GetTopRankRequest)
 	metrics.RecordRequest("GetTopRank", "ok")
 
 	return &pb.GetTopRankResponse{
-		Entries:   entries,
-		UpdatedAt: time.Now().UnixMilli(),
+		Entries:      entries,
+		TotalPlayers: int64(len(entries)),
+		UpdatedAt:    time.Now().UnixMilli(),
 	}, nil
+}
+
+func (h *RankHandler) GetPlayerRank(ctx context.Context, req *pb.GetPlayerRankRequest) (*pb.GetPlayerRankResponse, error) {
+	if req.GetPlayerId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "player_id is required")
+	}
+
+	player, err := h.rankService.GetPlayerRankInLeaderboard(ctx, req.GetLeaderboardType(), req.GetPlayerId())
+	if err != nil {
+		return nil, rankError(err)
+	}
+	if player == nil {
+		return &pb.GetPlayerRankResponse{Found: false}, nil
+	}
+	return &pb.GetPlayerRankResponse{
+		Found: true,
+		Player: &pb.Player{
+			PlayerId:  player.PlayerID,
+			RankScore: int64(player.Score),
+		},
+		CurrentRank: player.Rank,
+	}, nil
+}
+
+func rankFromPlayerInfo(player *service.PlayerInfo) int64 {
+	if player == nil {
+		return 0
+	}
+	return player.Rank
+}
+
+func rankError(err error) error {
+	if errors.Is(err, service.ErrInvalidLeaderboardType) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	return err
 }
