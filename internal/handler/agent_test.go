@@ -10,7 +10,7 @@ import (
 func TestHealthzCompatibility(t *testing.T) {
 	handler := NewHTTPHandler(nil, nil, nil)
 
-	for _, path := range []string{"/health", "/healthz"} {
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 
@@ -53,7 +53,7 @@ func TestAgentCapabilities(t *testing.T) {
 	if payload.Project.ID != "corerank" || payload.Project.Name != "CoreRank" {
 		t.Fatalf("unexpected project identity: %#v", payload.Project)
 	}
-	if payload.Health["primary"] != "/healthz" || payload.Health["legacy"] != "/health" {
+	if payload.Health["primary"] != "/readyz" || payload.Health["liveness"] != "/healthz" || payload.Health["legacy"] != "/health" {
 		t.Fatalf("unexpected health aliases: %#v", payload.Health)
 	}
 	if !containsString(payload.Capabilities, "match_ticket_diagnose") {

@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	// 导入生成的 proto 代码
-	pb "CoreRank/api/proto"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
 )
 
 // ============================================================================

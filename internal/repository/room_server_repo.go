@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -21,13 +21,16 @@ const (
 	GameServerStatusUnhealthy = "unhealthy"
 
 	RoomAssignmentStatusAssigned = "assigned"
+	RoomAssignmentStatusReleased = "released"
 
 	roomServerInfoPrefix       = "server:info:"
 	roomServerIndexPrefix      = "server:index:"
 	roomServerLoadPrefix       = "server:load:"
 	RoomServerHeartbeatKey     = "server:heartbeat"
 	roomAssignmentPrefix       = "room:assignment:"
+	RoomAssignmentExpiryKey    = "room:assignment:expiry"
 	defaultRoomAssignmentTTL   = 24 * time.Hour
+	defaultRoomAssignmentLease = 2 * time.Hour
 	defaultServerHeartbeatAge  = 30 * time.Second
 	defaultRoomServerMatchMode = "default"
 )
@@ -35,6 +38,7 @@ const (
 var (
 	ErrGameServerNotFound    = errors.New("game server not found")
 	ErrNoAvailableRoomServer = errors.New("no available room server")
+	ErrInvalidGameServer     = errors.New("invalid game server")
 )
 
 type GameServer struct {
@@ -45,6 +49,7 @@ type GameServer struct {
 	MatchMode       string `json:"match_mode"`
 	Capacity        int64  `json:"capacity"`
 	CurrentLoad     int64  `json:"current_load"`
+	ObservedLoad    int64  `json:"observed_load"`
 	Status          string `json:"status"`
 	LastHeartbeatAt int64  `json:"last_heartbeat_at"`
 	UpdatedAt       int64  `json:"updated_at"`
@@ -90,8 +95,23 @@ func (r *RoomServerRepository) RegisterGameServer(ctx context.Context, server Ga
 	if err != nil {
 		return nil, err
 	}
+	if existing, getErr := r.GetGameServer(ctx, normalized.ServerID); getErr == nil {
+		// Re-registration reports the process load but must not erase slots that
+		// have already been reserved by the allocator.
+		normalized.CurrentLoad = existing.CurrentLoad
+		if normalized.MatchMode != existing.MatchMode {
+			return nil, fmt.Errorf("%w: match_mode cannot change while a server is registered", ErrInvalidGameServer)
+		}
+	} else if !errors.Is(getErr, ErrGameServerNotFound) {
+		return nil, getErr
+	}
 
-	if err := r.client.HSet(ctx, roomServerInfoKey(normalized.ServerID), normalized.toHash()).Err(); err != nil {
+	serverHash := normalized.toHash()
+	delete(serverHash, "current_load")
+	if err := r.client.HSet(ctx, roomServerInfoKey(normalized.ServerID), serverHash).Err(); err != nil {
+		return nil, err
+	}
+	if err := r.client.HSetNX(ctx, roomServerInfoKey(normalized.ServerID), "current_load", normalized.CurrentLoad).Err(); err != nil {
 		return nil, err
 	}
 	if err := r.client.SAdd(ctx, roomServerIndexKey(normalized.MatchMode), normalized.ServerID).Err(); err != nil {
@@ -103,14 +123,21 @@ func (r *RoomServerRepository) RegisterGameServer(ctx context.Context, server Ga
 	}).Err(); err != nil {
 		return nil, err
 	}
-	if err := r.updateServerLoad(ctx, normalized); err != nil {
+	latest, err := r.GetGameServer(ctx, normalized.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.updateServerLoad(ctx, *latest); err != nil {
 		return nil, err
 	}
 
-	return &normalized, nil
+	return latest, nil
 }
 
 func (r *RoomServerRepository) HeartbeatGameServer(ctx context.Context, serverID string, heartbeat GameServerHeartbeat) (*GameServer, error) {
+	if err := ValidateIdentifier("server_id", serverID, 64); err != nil {
+		return nil, err
+	}
 	server, err := r.GetGameServer(ctx, serverID)
 	if err != nil {
 		return nil, err
@@ -119,23 +146,28 @@ func (r *RoomServerRepository) HeartbeatGameServer(ctx context.Context, serverID
 	now := time.Now().UnixMilli()
 	if heartbeat.Status != "" {
 		if !isValidGameServerStatus(heartbeat.Status) {
-			return nil, errors.New("status must be active, draining, or unhealthy")
+			return nil, fmt.Errorf("%w: status must be active, draining, or unhealthy", ErrInvalidGameServer)
 		}
 		server.Status = heartbeat.Status
 	}
 	if heartbeat.CurrentLoad != nil {
 		if *heartbeat.CurrentLoad < 0 {
-			return nil, errors.New("current_load must be greater than or equal to 0")
+			return nil, fmt.Errorf("%w: current_load must be greater than or equal to 0", ErrInvalidGameServer)
 		}
 		if *heartbeat.CurrentLoad > server.Capacity {
-			return nil, errors.New("current_load must not exceed capacity")
+			return nil, fmt.Errorf("%w: current_load must not exceed capacity", ErrInvalidGameServer)
 		}
-		server.CurrentLoad = *heartbeat.CurrentLoad
+		server.ObservedLoad = *heartbeat.CurrentLoad
 	}
 	server.LastHeartbeatAt = now
 	server.UpdatedAt = now
 
-	if err := r.client.HSet(ctx, roomServerInfoKey(server.ServerID), server.toHash()).Err(); err != nil {
+	if err := r.client.HSet(ctx, roomServerInfoKey(server.ServerID), map[string]any{
+		"status":            server.Status,
+		"observed_load":     server.ObservedLoad,
+		"last_heartbeat_at": server.LastHeartbeatAt,
+		"updated_at":        server.UpdatedAt,
+	}).Err(); err != nil {
 		return nil, err
 	}
 	if err := r.client.ZAdd(ctx, RoomServerHeartbeatKey, redis.Z{
@@ -144,13 +176,13 @@ func (r *RoomServerRepository) HeartbeatGameServer(ctx context.Context, serverID
 	}).Err(); err != nil {
 		return nil, err
 	}
-	if err := r.updateServerLoad(ctx, *server); err != nil {
-		return nil, err
-	}
-	return server, nil
+	return r.GetGameServer(ctx, serverID)
 }
 
 func (r *RoomServerRepository) GetGameServer(ctx context.Context, serverID string) (*GameServer, error) {
+	if err := ValidateIdentifier("server_id", serverID, 64); err != nil {
+		return nil, err
+	}
 	values, err := r.client.HGetAll(ctx, roomServerInfoKey(serverID)).Result()
 	if err != nil {
 		return nil, err
@@ -166,6 +198,13 @@ func (r *RoomServerRepository) GetGameServer(ctx context.Context, serverID strin
 }
 
 func (r *RoomServerRepository) ListGameServers(ctx context.Context, matchMode string) ([]GameServer, error) {
+	if matchMode != "" {
+		mode, err := NormalizeMatchMode(matchMode)
+		if err != nil {
+			return nil, err
+		}
+		matchMode = mode
+	}
 	serverIDs, err := r.client.ZRange(ctx, RoomServerHeartbeatKey, 0, -1).Result()
 	if err != nil {
 		return nil, err
@@ -189,9 +228,11 @@ func (r *RoomServerRepository) ListGameServers(ctx context.Context, matchMode st
 }
 
 func (r *RoomServerRepository) AllocateRoomServer(ctx context.Context, req RoomServerAllocationRequest) (*RoomAssignment, error) {
-	if req.MatchMode == "" {
-		req.MatchMode = defaultRoomServerMatchMode
+	mode, err := NormalizeMatchMode(req.MatchMode)
+	if err != nil {
+		return nil, err
 	}
+	req.MatchMode = mode
 	if req.HeartbeatTimeout <= 0 {
 		req.HeartbeatTimeout = defaultServerHeartbeatAge
 	}
@@ -211,6 +252,10 @@ func (r *RoomServerRepository) AllocateRoomServer(ctx context.Context, req RoomS
 	}
 
 	reserveSlots := int64(len(req.PlayerIDs))
+	playersJSON, err := json.Marshal(req.PlayerIDs)
+	if err != nil {
+		return nil, err
+	}
 	for _, serverID := range serverIDs {
 		server, err := r.GetGameServer(ctx, serverID)
 		if err != nil {
@@ -226,12 +271,19 @@ func (r *RoomServerRepository) AllocateRoomServer(ctx context.Context, req RoomS
 		result, err := ReserveRoomServerScript.Run(
 			ctx,
 			r.client,
-			[]string{roomServerInfoKey(server.ServerID), roomServerLoadKey(server.MatchMode)},
+			[]string{roomServerInfoKey(server.ServerID), roomServerLoadKey(server.MatchMode), roomAssignmentKey(req.MatchID), RoomAssignmentExpiryKey},
 			server.ServerID,
 			req.NowMS,
 			req.HeartbeatTimeout.Milliseconds(),
 			GameServerStatusActive,
 			reserveSlots,
+			req.MatchID,
+			req.RoomID,
+			req.MatchMode,
+			string(playersJSON),
+			RoomAssignmentStatusAssigned,
+			defaultRoomAssignmentTTL.Milliseconds(),
+			req.NowMS+defaultRoomAssignmentLease.Milliseconds(),
 		).Result()
 		if err != nil {
 			return nil, err
@@ -272,12 +324,54 @@ func (r *RoomServerRepository) ReleaseRoomServer(ctx context.Context, assignment
 	_, err := ReleaseRoomServerScript.Run(
 		ctx,
 		r.client,
-		[]string{roomServerInfoKey(assignment.ServerID), roomServerLoadKey(assignment.MatchMode)},
+		[]string{roomServerInfoKey(assignment.ServerID), roomServerLoadKey(assignment.MatchMode), roomAssignmentKey(assignment.MatchID), RoomAssignmentExpiryKey},
 		assignment.ServerID,
 		now,
 		len(assignment.PlayerIDs),
+		RoomAssignmentStatusAssigned,
+		RoomAssignmentStatusReleased,
+		assignment.MatchID,
 	).Result()
 	return err
+}
+
+func (r *RoomServerRepository) ReleaseExpiredRoomAssignments(ctx context.Context, nowMS int64, limit int64) (int, error) {
+	if nowMS <= 0 {
+		nowMS = time.Now().UnixMilli()
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	matchIDs, err := r.client.ZRangeByScore(ctx, RoomAssignmentExpiryKey, &redis.ZRangeBy{
+		Min: "-inf", Max: strconv.FormatInt(nowMS, 10), Offset: 0, Count: limit,
+	}).Result()
+	if err != nil {
+		return 0, err
+	}
+	released := 0
+	for _, matchID := range matchIDs {
+		values, err := r.client.HGetAll(ctx, roomAssignmentKey(matchID)).Result()
+		if err != nil {
+			return released, err
+		}
+		if len(values) == 0 || values["status"] != RoomAssignmentStatusAssigned {
+			if err := r.client.ZRem(ctx, RoomAssignmentExpiryKey, matchID).Err(); err != nil {
+				return released, err
+			}
+			continue
+		}
+		var playerIDs []string
+		if err := json.Unmarshal([]byte(values["player_ids"]), &playerIDs); err != nil {
+			return released, fmt.Errorf("parse room assignment %s players: %w", matchID, err)
+		}
+		if err := r.ReleaseRoomServer(ctx, RoomAssignment{
+			MatchID: matchID, ServerID: values["server_id"], MatchMode: values["match_mode"], PlayerIDs: playerIDs,
+		}); err != nil {
+			return released, err
+		}
+		released++
+	}
+	return released, nil
 }
 
 func (r *RoomServerRepository) SaveRoomAssignment(ctx context.Context, assignment RoomAssignment) error {
@@ -306,35 +400,50 @@ func (r *RoomServerRepository) SaveRoomAssignment(ctx context.Context, assignmen
 }
 
 func normalizeGameServer(server GameServer, now int64) (GameServer, error) {
-	if server.ServerID == "" {
-		return GameServer{}, errors.New("server_id is required")
+	if err := ValidateIdentifier("server_id", server.ServerID, 64); err != nil {
+		return GameServer{}, err
 	}
+	server.Addr = strings.TrimSpace(server.Addr)
 	if server.Addr == "" {
-		return GameServer{}, errors.New("addr is required")
+		return GameServer{}, fmt.Errorf("%w: addr is required", ErrInvalidGameServer)
+	}
+	if len(server.Addr) > 255 {
+		return GameServer{}, fmt.Errorf("%w: addr length must be <= 255", ErrInvalidGameServer)
 	}
 	if server.ServerType == "" {
 		server.ServerType = GameServerTypeRoom
 	}
 	if !isValidGameServerType(server.ServerType) {
-		return GameServer{}, errors.New("server_type must be room or battle")
+		return GameServer{}, fmt.Errorf("%w: server_type must be room or battle", ErrInvalidGameServer)
 	}
-	if server.MatchMode == "" {
-		server.MatchMode = defaultRoomServerMatchMode
+	matchMode, err := NormalizeMatchMode(server.MatchMode)
+	if err != nil {
+		return GameServer{}, err
 	}
+	server.MatchMode = matchMode
 	if server.Status == "" {
 		server.Status = GameServerStatusActive
 	}
 	if !isValidGameServerStatus(server.Status) {
-		return GameServer{}, errors.New("status must be active, draining, or unhealthy")
+		return GameServer{}, fmt.Errorf("%w: status must be active, draining, or unhealthy", ErrInvalidGameServer)
 	}
 	if server.Capacity <= 0 {
-		return GameServer{}, errors.New("capacity must be greater than 0")
+		return GameServer{}, fmt.Errorf("%w: capacity must be greater than 0", ErrInvalidGameServer)
+	}
+	if server.Capacity > 100000 {
+		return GameServer{}, fmt.Errorf("%w: capacity must not exceed 100000", ErrInvalidGameServer)
 	}
 	if server.CurrentLoad < 0 {
-		return GameServer{}, errors.New("current_load must be greater than or equal to 0")
+		return GameServer{}, fmt.Errorf("%w: current_load must be greater than or equal to 0", ErrInvalidGameServer)
 	}
 	if server.CurrentLoad > server.Capacity {
-		return GameServer{}, errors.New("current_load must not exceed capacity")
+		return GameServer{}, fmt.Errorf("%w: current_load must not exceed capacity", ErrInvalidGameServer)
+	}
+	if server.ObservedLoad == 0 && server.CurrentLoad > 0 {
+		server.ObservedLoad = server.CurrentLoad
+	}
+	if server.ObservedLoad < 0 || server.ObservedLoad > server.Capacity {
+		return GameServer{}, fmt.Errorf("%w: observed_load must be between 0 and capacity", ErrInvalidGameServer)
 	}
 	if server.LastHeartbeatAt <= 0 {
 		server.LastHeartbeatAt = now
@@ -354,10 +463,11 @@ func isValidGameServerStatus(status string) bool {
 }
 
 func (r *RoomServerRepository) updateServerLoad(ctx context.Context, server GameServer) error {
-	return r.client.ZAdd(ctx, roomServerLoadKey(server.MatchMode), redis.Z{
-		Score:  loadRatio(server.CurrentLoad, server.Capacity),
-		Member: server.ServerID,
-	}).Err()
+	_, err := UpdateRoomServerLoadScript.Run(ctx, r.client,
+		[]string{roomServerInfoKey(server.ServerID), roomServerLoadKey(server.MatchMode)},
+		server.ServerID,
+	).Result()
+	return err
 }
 
 func (s GameServer) toHash() map[string]any {
@@ -369,6 +479,7 @@ func (s GameServer) toHash() map[string]any {
 		"match_mode":        s.MatchMode,
 		"capacity":          s.Capacity,
 		"current_load":      s.CurrentLoad,
+		"observed_load":     s.ObservedLoad,
 		"status":            s.Status,
 		"last_heartbeat_at": s.LastHeartbeatAt,
 		"updated_at":        s.UpdatedAt,
@@ -389,6 +500,9 @@ func gameServerFromHash(values map[string]string) (GameServer, error) {
 		return GameServer{}, err
 	}
 	if server.CurrentLoad, err = parseOptionalIntField(values, "current_load"); err != nil {
+		return GameServer{}, err
+	}
+	if server.ObservedLoad, err = parseOptionalIntField(values, "observed_load"); err != nil {
 		return GameServer{}, err
 	}
 	if server.LastHeartbeatAt, err = parseOptionalIntField(values, "last_heartbeat_at"); err != nil {
@@ -425,13 +539,6 @@ func scriptInt(value interface{}) int64 {
 	}
 }
 
-func loadRatio(currentLoad int64, capacity int64) float64 {
-	if capacity <= 0 {
-		return math.MaxFloat64
-	}
-	return float64(currentLoad) / float64(capacity)
-}
-
 func roomServerInfoKey(serverID string) string {
 	return roomServerInfoPrefix + serverID
 }
@@ -451,12 +558,21 @@ func roomAssignmentKey(matchID string) string {
 var ReserveRoomServerScript = redis.NewScript(`
 local info_key = KEYS[1]
 local load_key = KEYS[2]
+local assignment_key = KEYS[3]
+local assignment_expiry_key = KEYS[4]
 
 local server_id = ARGV[1]
 local now_ms = tonumber(ARGV[2])
 local max_heartbeat_age_ms = tonumber(ARGV[3])
 local active_status = ARGV[4]
 local reserve_slots = tonumber(ARGV[5])
+local match_id = ARGV[6]
+local room_id = ARGV[7]
+local match_mode = ARGV[8]
+local players_json = ARGV[9]
+local assigned_status = ARGV[10]
+local assignment_ttl_ms = tonumber(ARGV[11])
+local assignment_expires_at = tonumber(ARGV[12])
 
 if redis.call('EXISTS', info_key) == 0 then
     return {0, 0, 'not_found'}
@@ -481,20 +597,58 @@ end
 local new_load = current_load + reserve_slots
 redis.call('HSET', info_key, 'current_load', new_load, 'updated_at', now_ms)
 redis.call('ZADD', load_key, new_load / capacity, server_id)
+redis.call('HSET', assignment_key,
+    'match_id', match_id,
+    'room_id', room_id,
+    'server_id', server_id,
+    'server_addr', redis.call('HGET', info_key, 'addr') or '',
+    'match_mode', match_mode,
+    'player_ids', players_json,
+    'status', assigned_status,
+    'current_load', new_load,
+    'created_at', now_ms)
+redis.call('PEXPIRE', assignment_key, assignment_ttl_ms)
+redis.call('ZADD', assignment_expiry_key, assignment_expires_at, match_id)
 
 return {1, new_load, 'reserved'}
+`)
+
+var UpdateRoomServerLoadScript = redis.NewScript(`
+local info_key = KEYS[1]
+local load_key = KEYS[2]
+local server_id = ARGV[1]
+local capacity = tonumber(redis.call('HGET', info_key, 'capacity') or '0')
+local current_load = tonumber(redis.call('HGET', info_key, 'current_load') or '0')
+if capacity <= 0 then
+    redis.call('ZREM', load_key, server_id)
+    return 0
+end
+redis.call('ZADD', load_key, current_load / capacity, server_id)
+return 1
 `)
 
 var ReleaseRoomServerScript = redis.NewScript(`
 local info_key = KEYS[1]
 local load_key = KEYS[2]
+local assignment_key = KEYS[3]
+local assignment_expiry_key = KEYS[4]
 
 local server_id = ARGV[1]
 local now_ms = tonumber(ARGV[2])
 local release_slots = tonumber(ARGV[3])
+local assigned_status = ARGV[4]
+local released_status = ARGV[5]
+local match_id = ARGV[6]
 
 if redis.call('EXISTS', info_key) == 0 then
+    redis.call('ZREM', assignment_expiry_key, match_id)
     return 0
+end
+
+if redis.call('EXISTS', assignment_key) == 1 and
+   redis.call('HGET', assignment_key, 'status') ~= assigned_status then
+    redis.call('ZREM', assignment_expiry_key, match_id)
+    return tonumber(redis.call('HGET', info_key, 'current_load') or '0')
 end
 
 local capacity = tonumber(redis.call('HGET', info_key, 'capacity') or '0')
@@ -508,6 +662,10 @@ redis.call('HSET', info_key, 'current_load', new_load, 'updated_at', now_ms)
 if capacity > 0 then
     redis.call('ZADD', load_key, new_load / capacity, server_id)
 end
+if redis.call('EXISTS', assignment_key) == 1 then
+    redis.call('HSET', assignment_key, 'status', released_status, 'released_at', now_ms)
+end
+redis.call('ZREM', assignment_expiry_key, match_id)
 
 return new_load
 `)

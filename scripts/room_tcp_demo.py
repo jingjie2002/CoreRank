@@ -98,7 +98,7 @@ class TCPClient:
 def create_match(base_url, match_mode):
     suffix = f"{os.getpid()}_{int(time.time() * 1000)}"
     players = [f"p_tcp_a_{suffix}", f"p_tcp_b_{suffix}"]
-    base_mmr = 30000 + (os.getpid() % 1000) * 100
+    base_mmr = 3000 + (os.getpid() % 10) * 100
 
     first = request(base_url, "POST", "/api/match/tickets", {
         "player_id": players[0],
@@ -113,26 +113,26 @@ def create_match(base_url, match_mode):
         "max_wait_ms": 30000,
     })
 
-    match_id = second.get("MatchID")
+    match_id = second.get("match_id")
     if not match_id:
-        refreshed_first = request(base_url, "GET", f"/api/match/tickets/{first['TicketID']}")
-        match_id = refreshed_first.get("MatchID")
+        refreshed_first = request(base_url, "GET", f"/api/match/tickets/{first['ticket_id']}")
+        match_id = refreshed_first.get("match_id")
     if not match_id:
         raise RuntimeError("match was not completed")
     result = request(base_url, "GET", f"/api/match/results/{match_id}")
     return result
 
 
-def run_tcp_flow(room_addr, room_id, players):
+def run_tcp_flow(room_addr, match_id, room_id, join_token, players):
     p1 = TCPClient(room_addr)
     p2 = TCPClient(room_addr)
     try:
-        p1.send({"type": "join", "room_id": room_id, "player_id": players[0]})
+        p1.send({"type": "join", "match_id": match_id, "room_id": room_id, "player_id": players[0], "join_token": join_token})
         resp = p1.recv()
         assert_type(resp, "joined")
         print(f"{players[0]} joined {room_id}")
 
-        p2.send({"type": "join", "room_id": room_id, "player_id": players[1]})
+        p2.send({"type": "join", "match_id": match_id, "room_id": room_id, "player_id": players[1], "join_token": join_token})
         resp = p2.recv()
         assert_type(resp, "joined")
         print(f"{players[1]} joined {room_id}")
@@ -214,16 +214,18 @@ def main():
         wait_roomserver_registered(base_url, match_mode, server_id)
 
         result = create_match(base_url, match_mode)
-        room_id = result["RoomID"]
-        assigned_addr = result["ServerAddr"]
-        players = result["PlayerIDs"]
+        match_id = result["match_id"]
+        room_id = result["room_id"]
+        assigned_addr = result["server_addr"]
+        players = result["player_ids"]
+        join_token = result["join_token"]
 
         print(f"CoreRank matched {players[0]}/{players[1]}")
         print(f"assigned room_id={room_id} server_addr={assigned_addr}")
         if assigned_addr != room_addr:
             raise RuntimeError(f"unexpected roomserver assignment: {assigned_addr}, expected {room_addr}")
 
-        run_tcp_flow(assigned_addr, room_id, players)
+        run_tcp_flow(assigned_addr, match_id, room_id, join_token, players)
         print("TCP roomserver demo completed")
     finally:
         terminate(room_proc)

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"CoreRank/internal/testutil"
+	"github.com/jingjie2002/CoreRank/internal/testutil"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -64,11 +64,14 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanRedisTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, MatchPoolKey, MatchTicketPoolKey, MatchTicketExpiryKey, GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, MatchPoolKey, MatchTicketPoolKey, MatchTicketModesKey, MatchTicketExpiryKey, GlobalRankKey).Err(); err != nil {
 		return err
 	}
 
 	if err := cleanRedisKeysByPattern(ctx, client, "match:*"); err != nil {
+		return err
+	}
+	if err := cleanRedisKeysByPattern(ctx, client, "{match:*}"); err != nil {
 		return err
 	}
 	return cleanRedisKeysByPattern(ctx, client, "{rank:*}")
@@ -145,6 +148,25 @@ func TestSearchAndPickPlayersKeepsMembersWhenBelowRequiredCount(t *testing.T) {
 	}
 	if !reflect.DeepEqual(players, []string{"single"}) {
 		t.Fatalf("single player should remain in pool, got %#v", players)
+	}
+}
+
+func TestSearchAndPickPlayersIncludesBothMMRBoundaries(t *testing.T) {
+	repo, cleanup := newTestRepository(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := repo.AddPlayerToPool(ctx, "lower-boundary", 1001); err != nil {
+		t.Fatalf("add lower boundary: %v", err)
+	}
+	if err := repo.AddPlayerToPool(ctx, "upper-boundary", 2000); err != nil {
+		t.Fatalf("add upper boundary: %v", err)
+	}
+	players, err := repo.SearchAndPickPlayers(ctx, 1001, 2000, 2)
+	if err != nil {
+		t.Fatalf("pick boundary players: %v", err)
+	}
+	if len(players) != 2 || players[0] != "lower-boundary" || players[1] != "upper-boundary" {
+		t.Fatalf("expected inclusive boundaries, got %#v", players)
 	}
 }
 

@@ -1,201 +1,129 @@
 # CoreRank
 
-CoreRank 是一个面向竞技游戏场景的 Go 匹配与排行榜服务。项目提供 gRPC 和 RESTful 两种接入方式，使用 Redis 保存匹配池、匹配票据和排行榜热数据，并通过 Redis Lua 脚本减少候选玩家被重复匹配的风险。
+CoreRank 是一个面向竞技游戏场景的 Go 匹配、排行榜和轻量房间资源分配服务。项目以 Redis 为热路径事实源，通过 gRPC 拆分 rank/match 服务，并以 HTTP gateway 和 TCP roomserver 组成可本地验证的分布式演示栈。
 
-这个仓库用于演示一条轻量的服务端链路：玩家更新积分、进入匹配队列、生成匹配结果、分配房间资源，并通过接口查询排行榜和匹配结果。
+## 当前能力
 
-## 功能
+- RankService：整数分数写入、多榜单 TopN/分页、玩家排名、真实榜单总人数。
+- MatchService：MatchTicket 创建、查询、取消、超时、结果查询和后台滑动窗口匹配。
+- 多模式隔离：每个 `match_mode` 使用独立 Redis ZSet 与 Worker 窗口，完成匹配前再次校验全部 ticket 模式。
+- 原子状态机：ticket 创建、取消、完成、超时通过 Redis Lua 执行 CAS/事务边界。
+- 房服容量：分离 allocator 预留负载和 roomserver 实报负载，心跳不会覆盖预留；结算/失败释放槽位，异常遗留由 2 小时 lease 回收。
+- 原子结算：校验完整参赛者集合，批量写榜、记录幂等指纹、标记结算并释放容量。
+- 可信 join：匹配结果携带 `join_token`，roomserver 校验 match/room/server/player/token 后才允许加入。
+- 可选 MySQL：Redis 成功后的同步旁路落库和榜单快照，不作为 Redis 恢复源。
+- Prometheus/Grafana、Docker Compose、Redis/MySQL 集成测试、smoke/soak 和 GitHub Actions。
 
-- 排行榜：更新玩家分数、查询 TopN、查询个人名次。
-- 多榜单维度：支持全局榜、赛季榜、活动榜等 `leaderboard_type`。
-- 匹配票据：创建、取消、查询票据状态和匹配结果。
-- Redis Lua：将候选玩家查询和移除合并为一次原子执行。
-- 房间资源分配：注册 room server，按匹配模式和容量选择可用服务。
-- TCP 房间服示例：`cmd/roomserver` 支持入房、准备、离开和心跳。
-- 可选 MySQL 持久化：玩家分数、匹配票据、匹配结果和榜单快照。
-- Prometheus 指标：请求耗时、匹配成功、取消、超时、队列数量和房间分配状态。
-- 本地观测栈：Docker Compose 提供 Redis、MySQL、Prometheus 和 Grafana。
-- 演示脚本：提供 RESTful 演示、TCP 房间服闭环演示和 gRPC robot 压测脚本。
+## 架构
 
-## 技术栈
-
-- Go 1.25
-- gRPC / Protobuf
-- RESTful HTTP
-- Redis / Redis Lua / Redis ZSet
-- MySQL
-- Prometheus / Grafana
-- Docker Compose
-
-## 目录结构
-
-```text
-cmd/server/          CoreRank 服务端入口
-cmd/roomserver/      TCP 房间服示例
-cmd/robot/           gRPC 请求压测脚本
-api/proto/           Protobuf 协议与生成代码
-internal/handler/    gRPC、RESTful 和 Agent 接口
-internal/service/    排行榜、匹配和房间分配业务
-internal/repository/ Redis、MySQL 和 Lua 脚本封装
-internal/metrics/    Prometheus 指标
-pkg/redis/           Redis 客户端封装
-scripts/             本地演示脚本
-docs/                API、架构、部署和验证文档
-grafana/             Grafana dashboard 与 provisioning 配置
+```mermaid
+flowchart LR
+    Client["Client / script"] -->|HTTP| Gateway["gateway"]
+    Gateway -->|gRPC| Rank["rank-service"]
+    Gateway -->|gRPC| Match["match-service"]
+    Room["roomserver"] -->|register / heartbeat / assignment verify| Gateway
+    Client -->|TCP JSON-line + join token| Room
+    Rank --> Redis[(Redis)]
+    Match --> Redis
+    Rank -. optional side write .-> MySQL[(MySQL)]
+    Match -. optional side write .-> MySQL
+    Gateway --> Prometheus
+    Rank --> Prometheus
+    Match --> Prometheus
+    Prometheus --> Grafana
 ```
+
+Redis 是当前主链路事实源。MySQL 写失败只记录日志，不回滚 Redis；项目没有实现 MySQL outbox、恢复回放或双写强一致。
 
 ## 快速开始
 
-### 1. 启动依赖
-
-最小运行依赖是 Redis：
+1. 复制本地配置并替换密码：
 
 ```powershell
-docker compose up -d corerank-redis
+Copy-Item .env.example .env
 ```
 
-如果需要同时启动 Redis、MySQL、Prometheus 和 Grafana：
+2. 构建并启动本地栈：
 
 ```powershell
-docker compose up -d corerank-redis corerank-mysql prometheus grafana
+docker compose build corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver
+docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
 ```
 
-### 2. 启动服务
+3. 验证：
 
 ```powershell
-go run ./cmd/server
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 ```
 
-默认端口：
+设置 `.env` 中的 `CORERANK_API_KEY` 后，smoke 会自动从同名环境变量携带 API key。Docker Compose 的主机端口默认全部绑定到 `127.0.0.1`。
 
-| 服务 | 默认地址 |
+## 默认地址
+
+| 组件 | 地址 |
 |---|---|
-| gRPC | `:8080` |
-| RESTful | `:8081` |
-| Prometheus metrics | `:9091` |
-| Prometheus | `http://localhost:9090` |
-| Grafana | `http://localhost:3000` |
+| Gateway liveness | `http://127.0.0.1:8081/healthz` |
+| Gateway readiness（gRPC 服务及 Redis） | `http://127.0.0.1:8081/readyz` |
+| Gateway metrics | `http://127.0.0.1:19080/metrics` |
+| RankService gRPC / metrics | `127.0.0.1:18081` / `http://127.0.0.1:19081/metrics` |
+| MatchService gRPC / metrics | `127.0.0.1:18082` / `http://127.0.0.1:19082/metrics` |
+| RoomServer TCP | `127.0.0.1:7001` |
+| Prometheus / Grafana | `http://127.0.0.1:9090` / `http://127.0.0.1:3000` |
 
-可以通过环境变量修改监听地址：
-
-```powershell
-$env:GRPC_ADDR="127.0.0.1:18080"
-$env:HTTP_ADDR="127.0.0.1:18081"
-$env:METRICS_ADDR="127.0.0.1:19091"
-go run ./cmd/server
-```
-
-### 3. 启用 MySQL 持久化
-
-MySQL 是可选持久化层。未配置 DSN 时，服务仍会使用 Redis 主链路处理排行榜和匹配请求。
+## 常用命令
 
 ```powershell
-$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
-go run ./cmd/server
-```
-
-如果希望启动时强制要求 MySQL 可用：
-
-```powershell
-$env:CORERANK_MYSQL_REQUIRED="true"
-```
-
-## Demo
-
-RESTful 演示：
-
-```powershell
-python scripts\rest_demo.py
-```
-
-TCP 房间服闭环演示：
-
-```powershell
-python scripts\room_tcp_demo.py
-```
-
-`room_tcp_demo.py` 会自动构建并启动临时 CoreRank Server 和 `cmd/roomserver`，完成 room server 注册、玩家创建匹配票据、返回房间地址、TCP 客户端入房和准备流程。
-
-gRPC robot：
-
-```powershell
-go run ./cmd/robot
-```
-
-robot 默认使用 100 个 goroutine，每个 goroutine 发送 100 次 `UpdateScore`。可以通过环境变量调整：
-
-```powershell
-$env:ROBOT_GRPC_ADDR="localhost:8080"
-$env:ROBOT_WORKERS="100"
-$env:ROBOT_REQUESTS_PER_WORKER="100"
-go run ./cmd/robot
-```
-
-## 验证
-
-推荐在修改后执行：
-
-```powershell
-$env:GOCACHE = Join-Path (Get-Location) ".gocache"
 go test ./...
 go vet ./...
-python scripts\rest_demo.py
+go build ./cmd/gateway ./cmd/rank-service ./cmd/match-service ./cmd/roomserver
+scripts\generate_proto.ps1
+```
+
+```powershell
 python scripts\room_tcp_demo.py
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
+powershell -ExecutionPolicy Bypass -File scripts\distributed_soak.ps1 -DurationMinutes 10
 ```
 
-MySQL 集成测试需要显式提供测试 DSN：
+旧的 `cmd/server` 单进程入口仍保留作兼容和对照，不是当前推荐部署形态。
 
-```powershell
-$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
-go test ./...
-```
+## 关键约束
 
-## Agent 接入
+- HTTP body 最大 64 KiB；gateway 默认 3 秒后端超时和 256 并发请求上限。
+- 排名 TopN 最大 100；MMR 为 0–10000；显式 `max_wait_ms` 为 1 秒–10 分钟。
+- roomserver 单条消息最大 64 KiB、30 秒空闲超时、默认 1024 并发连接。
+- `CORERANK_API_KEY` 提供本地共享环境的轻量保护；它不是账号/JWT 或服务级 mTLS。
+- 内部 gRPC 当前使用明文连接，适用于本机或 Compose 私有网络，不应直接暴露到不可信网络。
 
-CoreRank 提供一组只读的 Agent 接入口，方便外部工具读取项目状态和能力声明。
+## 目录
 
-| 能力 | 入口 |
-|---|---|
-| 项目声明 | `agent.yaml` |
-| 健康检查 | `GET /healthz`，兼容旧 `GET /health` |
-| 能力声明 | `GET /api/agent/capabilities` |
-| Agent events | `GET /api/agent/events` |
-| Agent logs | `GET /api/agent/logs` |
-| Agent smoke test | `python scripts\agent_smoke.py` |
-
-离线检查：
-
-```powershell
-python scripts\agent_smoke.py --offline
-```
-
-服务启动后检查：
-
-```powershell
-python scripts\agent_smoke.py --base-url http://127.0.0.1:8081
+```text
+api/proto/              Protobuf 协议与生成代码
+cmd/gateway/            HTTP gateway
+cmd/rank-service/       排行榜 gRPC 服务
+cmd/match-service/      匹配 gRPC 服务与 MatchWorker
+cmd/roomserver/         TCP JSON-line roomserver
+internal/handler/       HTTP / gRPC handler
+internal/service/       排名、匹配、结算与分配逻辑
+internal/repository/    Redis、MySQL 与 Lua 原子脚本
+internal/roomserver/    TCP 房间状态与 join 校验
+scripts/                生成、smoke、soak 与演示脚本
+docs/                   架构、API、观测和验证文档
 ```
 
 ## 文档
 
-- [验证指南](./docs/verification.md)
-- [Agent 接入说明](./docs/agent-integration.md)
-- [API 文档](./docs/api.md)
-- [架构文档](./docs/architecture.md)
-- [部署与结算说明](./docs/deployment-and-settlement.md)
-- [本地测试与演示指南](./docs/demo-guide.md)
-- [本地观测栈](./docs/observability.md)
-- [测试策略](./docs/optimization-and-testing-plan.md)
-- [压测记录](./docs/benchmark.md)
-- [2026-05-06 验证记录](./docs/verification-2026-05-06.md)
+- [API](docs/api.md)
+- [架构](docs/architecture.md)
+- [本地演示](docs/demo-guide.md)
+- [验证](docs/verification.md)
+- [可观测性](docs/observability.md)
+- [安全策略](SECURITY.md)
 
-## 当前限制
+## 边界
 
-- 不包含完整账号系统、JWT 鉴权或反作弊。
-- 不包含完整战斗服逻辑、帧同步或断线重连。
-- 未做 Redis Cluster 部署验证。
-- 未提供 Kubernetes 或线上服务发现配置。
-- 性能脚本结果只代表本机环境和测试参数，不代表生产承诺。
+CoreRank 是本地分布式原型，不是生产级高可用系统。目前不包含完整账号/JWT、外网 TLS/mTLS、可信战斗服身份、Redis Cluster、自动故障转移、服务发现、Kubernetes、分布式追踪或完整战斗逻辑。历史 benchmark 只代表对应机器和测试窗口，不构成生产 TPS/P99 承诺。
 
 ## License
 
-未指定。
+本项目使用 [MIT License](LICENSE)。

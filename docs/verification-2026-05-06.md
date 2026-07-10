@@ -36,15 +36,15 @@ python .\scripts\rest_demo.py
   - TPS：27,139.28 req/sec。
   - 平均延迟：3.51ms。
 
-## 简历使用边界
+## 公开说明边界
 
-可以写：
+可以说明：
 
 - 使用 Go + gRPC/RESTful + Redis ZSet/Lua 实现匹配池和排行榜服务。
 - 提供 Robot 压测与 Prometheus 指标暴露。
 - 本机 10,000 次 gRPC 请求验证成功率 100%，平均延迟约 3.5ms。
 
-不建议写：
+不建议声明：
 
 - 已生产落地。
 - 已支持 Redis Cluster。

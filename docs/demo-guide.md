@@ -1,40 +1,188 @@
-# CoreRank 本地测试与面试演示指南
+# CoreRank 本地运行与验证指南
 
-这份指南按“没有服务器经验也能讲清楚”的方式组织。你可以先把自己的电脑理解成一台小服务器：CoreRank 服务端、Redis、MySQL、Robot 客户端都可以先跑在本机。
+本文档记录 CoreRank 在本机环境中的推荐运行方式。当前主路径是 Docker Compose 分布式栈；单进程入口仍保留用于兼容调试。
 
-## 你需要理解的角色
+## 1. 环境要求
 
-| 角色 | 在真实公司里 | 你本机演示时 |
+- Go 1.25.x
+- Docker Desktop / Docker Compose
+- Python 3，用于本地脚本
+- PowerShell，用于 Windows 本地命令示例
+
+可选：
+
+- MySQL 客户端工具
+- Redis 客户端工具
+
+## 2. 服务组件
+
+| 组件 | 说明 | 默认地址 |
 |---|---|---|
-| CoreRank Server | 跑在 Linux 服务器或容器里 | 跑在你的 Windows 终端里 |
-| Room/Battle Server | 独立房间服或战斗服进程 | `cmd/roomserver` 跑一个最小 TCP 房间服 v1 |
-| Redis | 独立缓存/状态服务 | 本机 Redis 或 Docker Redis |
-| MySQL | 独立数据库 | 本机 MySQL 测试库或 Docker MySQL |
-| Robot | 压测客户端 | 本机另一个终端 |
-| Prometheus | 定时抓 `/metrics` | 你可以直接浏览器打开 `/metrics` |
-| Grafana | 把 Prometheus 指标画成图 | 你可以打开 `http://localhost:3000` |
+| `gateway` | HTTP API 入口 | `http://127.0.0.1:8081` |
+| `rank-service` | 排行榜 gRPC 服务 | `127.0.0.1:18081` |
+| `match-service` | 匹配 gRPC 服务 | `127.0.0.1:18082` |
+| `roomserver` | TCP JSON-line 房间服 | `127.0.0.1:7001` |
+| Redis | 共享状态存储 | `127.0.0.1:6379` |
+| MySQL | 可选持久化 | `127.0.0.1:3307` |
+| Prometheus | 指标采集 | `http://127.0.0.1:9090` |
+| Grafana | 指标看板 | `http://127.0.0.1:3000` |
 
-## 最稳的本地验收顺序
+## 3. 启动分布式栈
 
-如果要演示 Grafana，请先启动 Docker Desktop，再启动本地观测栈。当前本地观测栈已经验证过 Redis、MySQL、Prometheus 和 Grafana 能一起运行。只跑 REST demo 和 Go 测试时，不需要 Grafana。
-
-### 1. 先确认代码和 CI
+如果电脑刚重启，或之前运行本项目时出现过卡死、死机、Docker Desktop 异常，先执行低负载前置检查：
 
 ```powershell
-cd path\to\CoreRank
-git status
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stability_preflight.ps1 -CheckEndpoints
 ```
 
-期望看到：
+该脚本只检查内存、磁盘、常用端口、Docker 相关进程和可选 HTTP 端点，不会启动 Docker、不构建镜像、不写入业务数据。
+
+构建服务镜像：
+
+```powershell
+docker compose build corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver
+```
+
+启动分布式栈：
+
+```powershell
+docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
+```
+
+查看服务状态：
+
+```powershell
+docker compose ps
+```
+
+预期结果：
+
+- `corerank-redis` 为 `healthy`。
+- `corerank-rank-service`、`corerank-match-service`、`corerank-gateway`、`corerank-roomserver` 均为 `Up`。
+- Prometheus 和 Grafana 为 `Up`。
+
+## 4. 运行分布式 Smoke
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
+```
+
+脚本会验证：
+
+1. gateway readyz 与两个 gRPC backend readiness。
+2. gateway、rank-service、match-service metrics。
+3. `compose-room-1` roomserver 自动注册和可用状态。
+4. 重复创建 ticket 返回冲突错误。
+5. queued ticket 可取消，重复取消返回冲突错误。
+6. 两个玩家创建匹配票据并匹配成功。
+7. 匹配结果包含 `ServerID` 和 `ServerAddr`。
+8. TCP roomserver 校验 `match_id + join_token + player_id` 后完成 `join -> ready -> room_started -> leave`。
+9. 比赛结算校验完整成员集合，并验证幂等批量写榜与容量释放。
+10. TopN 和玩家排名查询。
+11. Prometheus targets 为 `up`。
+12. Grafana dashboard 可搜索。
+
+通过后会输出一段 JSON 结果，其中包含 `cancel_repeat_status_code`、`duplicate_repeat_status_code`、`match_id`、`room_id`、`match_server_id`、`match_server_addr`、`leaderboard_type` 等证据字段。
+
+## 5. 受控长稳探测
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\distributed_soak.ps1 -DurationMinutes 10 -IntervalSeconds 30
+```
+
+脚本会先执行稳定性前置检查。如果可用内存或磁盘空间低于阈值，会输出 `blocked` 并停止，不继续制造请求。资源满足时，它会按间隔检查 gateway、Prometheus、Grafana 和 Prometheus targets。
+
+可选在开始或结束时执行完整 smoke：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\distributed_soak.ps1 -DurationMinutes 10 -IntervalSeconds 30 -RunSmokeAtStart -RunSmokeAtEnd
+```
+
+## 6. 单进程兼容模式
+
+单进程模式适合简单调试。它不会体现当前分布式服务边界。
+
+启动 Redis：
+
+```powershell
+docker compose up -d corerank-redis
+```
+
+启动服务：
+
+```powershell
+go run ./cmd/server
+```
+
+默认地址：
+
+| 组件 | 地址 |
+|---|---|
+| REST | `http://127.0.0.1:8081` |
+| gRPC | `127.0.0.1:8080` |
+| Metrics | `http://127.0.0.1:9091/metrics` |
+
+## 7. REST 脚本
+
+```powershell
+python scripts\rest_demo.py
+```
+
+该脚本会自动构建并启动临时单进程服务端，验证：
+
+- 排行榜写入和查询。
+- 多榜单 `leaderboard_type`。
+- room server 注册。
+- 匹配票据创建。
+- 匹配结果查询。
+- 票据超时。
+- metrics 指标存在。
+
+## 8. TCP RoomServer 脚本
+
+```powershell
+python scripts\room_tcp_demo.py
+```
+
+该脚本会自动构建并启动临时 CoreRank Server 和 roomserver，验证：
+
+- roomserver 注册和 heartbeat。
+- 两个玩家创建匹配票据。
+- 匹配结果返回 `RoomID`、`ServerID` 和 `ServerAddr`。
+- 两个 TCP 客户端携带匹配结果中的 `join_token` 连接 roomserver，并完成 `join`、`ready`、`room_started`、`leave`。
+
+## 9. gRPC Robot
+
+先启动单进程服务：
+
+```powershell
+go run ./cmd/server
+```
+
+另开终端运行：
+
+```powershell
+go run ./cmd/robot
+```
+
+默认参数：
 
 ```text
-On branch main
-nothing to commit, working tree clean
+100 workers
+100 requests per worker
+10000 total UpdateScore requests
 ```
 
-GitHub Actions 通过，说明公开仓库能自动跑测试、静态检查和构建。
+可通过环境变量调整：
 
-### 2. 跑自动测试
+```powershell
+$env:ROBOT_GRPC_ADDR="localhost:8080"
+$env:ROBOT_WORKERS="20"
+$env:ROBOT_REQUESTS_PER_WORKER="50"
+go run ./cmd/robot
+```
+
+## 10. Go 测试与静态检查
 
 ```powershell
 $env:GOCACHE = Join-Path (Get-Location) ".gocache"
@@ -42,93 +190,53 @@ go test ./...
 go vet ./...
 ```
 
-这一步证明代码能编译，核心 Redis/MySQL 测试能跑。
+Redis 不可用时，部分 Redis 集成测试会跳过。完整验收应在 Redis 可用时执行。
 
-### 3. 跑 REST demo
+## 11. MySQL 持久化验证
 
-```powershell
-python scripts\rest_demo.py
-```
-
-这一步会自动构建并启动临时服务端，然后演示：
-
-- 排行榜写入和查询。
-- 注册一台 demo room server。
-- 匹配票据创建。
-- 两个玩家匹配成功并生成 `match_id`、`room_id`、`ServerID` 和 `ServerAddr`。
-- 短等待票据变成 `timeout`。
-- `/metrics` 中存在匹配业务指标和房间分配指标。
-
-### 4. 跑 TCP 房间服闭环 demo
+MySQL 是可选持久化层。使用 Docker Compose 中的 MySQL 时，DSN 示例：
 
 ```powershell
-python scripts\room_tcp_demo.py
+$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
 ```
 
-这一步会自动构建并启动临时 CoreRank Server 和 roomserver，然后演示：
-
-- roomserver 注册到 CoreRank，并持续 heartbeat。
-- 两个玩家通过 REST 创建匹配票据。
-- CoreRank 生成 `match_id`、`room_id` 和 `ServerAddr`。
-- 两个 TCP 客户端连接 `ServerAddr`，完成 `join` / `ready` / `room_started` / `leave`。
-
-### 5. 跑 Robot 压测
-
-先启动服务端：
+MySQL 集成测试需要单独设置测试 DSN：
 
 ```powershell
-go run ./cmd/server
+$env:CORERANK_TEST_MYSQL_DSN="corerank:<password>@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
+go test ./...
 ```
 
-另开一个终端：
+如需启动时强制依赖 MySQL：
 
 ```powershell
-go run ./cmd/robot
+$env:CORERANK_MYSQL_REQUIRED="true"
 ```
 
-默认会跑：
+## 12. 常见问题
+
+### Docker 命令权限
+
+在部分 Windows 环境中，Docker 命令可能需要提升权限才能读取 Docker Desktop 配置或执行 build/up。
+
+### 端口占用
+
+默认端口包括 `6379`、`7001`、`8081`、`18081`、`18082`、`19080`、`19081`、`19082`、`9090`、`3000`。如果宿主机 Redis 端口被占用，可设置 `CORERANK_REDIS_PORT`（例如 `6380`）；其他端口冲突需要调整 Compose 映射或对应环境变量。
+
+### Grafana 数据为空
+
+先确认 Prometheus targets 是否为 `up`：
 
 ```text
-100 个 goroutine
-每个 goroutine 100 次请求
-总计 10000 次 gRPC UpdateScore
+http://127.0.0.1:9090/targets
 ```
 
-如果只想快速演示，可以降低参数：
+再确认 `scripts/distributed_smoke.ps1` 已经产生过服务请求。
 
-```powershell
-$env:ROBOT_WORKERS="20"
-$env:ROBOT_REQUESTS_PER_WORKER="50"
-go run ./cmd/robot
-```
+### roomserver 注册失败
 
-## 面试时怎么演示
+检查：
 
-推荐顺序：
-
-1. 打开 README，先说项目定位：Go 游戏匹配与排行榜中台。
-2. 跑 `go test ./...`，证明不是只会讲。
-3. 跑 `python scripts\rest_demo.py`，展示匹配生命周期。
-4. 跑 `python scripts\room_tcp_demo.py`，展示匹配结果真的能连到 TCP 房间服。
-5. 打开 `http://localhost:9091/metrics`，说明 Prometheus 指标。
-6. 打开 `http://localhost:3000`，展示 CoreRank Overview dashboard。
-7. 跑一次 Robot，展示 10000 次 gRPC 请求结果。
-8. 打开 `docs/benchmark.md`，说明压测数字的环境和边界。
-
-## 你可以怎么解释“服务器”
-
-可以这样说：
-
-```text
-这个项目本质上是服务端中间服务。真实公司里会跑在 Linux 服务器、容器或 Kubernetes 里；我当前简历项目先保证本机和 GitHub CI 可复现，本地用 Redis/MySQL 模拟依赖，用 Robot 模拟内部服务请求。后续如果需要正式演示，可以把同样的服务端二进制或 Docker Compose 放到一台 Linux 云服务器上跑。
-```
-
-## 不要现场硬做的事
-
-- 不要现场临时装 MySQL 或 Docker。
-- 不要现场讲 Redis Cluster 已落地。
-- 不要把本机 TPS 说成生产 TPS。
-- 不要说已经有完整 TCP/WebSocket 战斗服；当前完成的是最小 TCP 房间服 v1 和本地可验证分配链路。
-- Grafana 只能说明“本地观测演示栈”，不能说明生产监控已落地。
-
-面试演示的重点不是把云服务器搭得多复杂，而是你能稳定复现、能解释架构边界、能讲清楚每个测试证明了什么。
+- `corerank-gateway` 是否运行。
+- `ROOM_SERVER_PUBLIC_ADDR` 是否是宿主机可访问地址。
+- `CORE_RANK_HTTP` 是否指向 `http://corerank-gateway:8081`。

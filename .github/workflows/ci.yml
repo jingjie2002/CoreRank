@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    name: Go test and vet
+    name: Test, race, generation and build
     runs-on: ubuntu-latest
 
     services:
@@ -46,11 +46,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.25.12"
           cache: true
 
       - name: Download modules
         run: go mod download
+
+      - name: Check gofmt
+        shell: bash
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
+          test -z "$files" || { echo "$files"; exit 1; }
 
       - name: Run tests
         env:
@@ -58,14 +64,55 @@ jobs:
           CORERANK_TEST_MYSQL_DSN: "corerank:corerank@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
         run: go test ./...
 
+      - name: Run race tests
+        env:
+          CORERANK_TEST_REDIS_ADDR: 127.0.0.1:6379
+          CORERANK_TEST_MYSQL_DSN: "corerank:corerank@tcp(127.0.0.1:3306)/corerank_test?parseTime=true&charset=utf8mb4&loc=Local"
+        run: go test -race ./...
+
       - name: Run go vet
         run: go vet ./...
 
-      - name: Build server
-        run: go build ./cmd/server
+      - name: Build every command
+        run: |
+          go build ./cmd/server
+          go build ./cmd/gateway
+          go build ./cmd/rank-service
+          go build ./cmd/match-service
+          go build ./cmd/roomserver
+          go build ./cmd/robot
 
-      - name: Build roomserver
-        run: go build ./cmd/roomserver
+      - name: Check generated protobuf code
+        shell: bash
+        env:
+          PROTOC_VERSION: "25.3"
+          PROTOC_SHA256: "f853e691868d0557425ea290bf7ba6384eef2fa9b04c323afab49a770ba9da80"
+        run: |
+          protoc_archive="$RUNNER_TEMP/protoc-$PROTOC_VERSION-linux-x86_64.zip"
+          protoc_dir="$RUNNER_TEMP/protoc-$PROTOC_VERSION"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip" \
+            --output "$protoc_archive"
+          printf '%s  %s\n' "$PROTOC_SHA256" "$protoc_archive" | sha256sum --check --strict
+          unzip -q "$protoc_archive" -d "$protoc_dir"
+          export PATH="$protoc_dir/bin:$PATH"
+          test "$(protoc --version)" = "libprotoc $PROTOC_VERSION"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0
+          sh scripts/generate_proto.sh
+          git diff --exit-code -- api/proto
 
-      - name: Build robot
-        run: go build ./cmd/robot
+      - name: Scan Go dependencies
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build distributed service images
+        run: |
+          docker build --build-arg SERVICE=./cmd/gateway -t corerank/gateway:ci .
+          docker build --build-arg SERVICE=./cmd/rank-service -t corerank/rank-service:ci .
+          docker build --build-arg SERVICE=./cmd/match-service -t corerank/match-service:ci .
+          docker build --build-arg SERVICE=./cmd/roomserver -t corerank/roomserver:ci .

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/repository"
-	"CoreRank/internal/service"
-	"CoreRank/internal/testutil"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/service"
+	"github.com/jingjie2002/CoreRank/internal/testutil"
 
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -46,7 +46,9 @@ func newTestMatchClient(t *testing.T) (pb.MatchServiceClient, func()) {
 	listener := bufconn.Listen(grpcTestBufferSize)
 	grpcServer := grpc.NewServer()
 	repo := repository.NewPlayerRepository(redisClient)
+	roomServerRepo := repository.NewRoomServerRepository(redisClient)
 	matchService := service.NewMatchService(repo)
+	matchService.SetRoomServerRepository(roomServerRepo)
 	pb.RegisterMatchServiceServer(grpcServer, NewMatchHandler(matchService))
 
 	go func() {
@@ -56,9 +58,8 @@ func newTestMatchClient(t *testing.T) (pb.MatchServiceClient, func()) {
 	dialer := func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
 	}
-	conn, err := grpc.DialContext(
-		context.Background(),
-		"bufnet",
+	conn, err := grpc.NewClient(
+		"passthrough:///bufnet",
 		grpc.WithContextDialer(dialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -98,13 +99,22 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanMatchHandlerTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketModesKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
 		return err
 	}
 
+	for _, pattern := range []string{"match:*", "{match:*}", "server:*", "room:assignment:*", "{rank:*}"} {
+		if err := deleteKeysByPattern(ctx, client, pattern); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteKeysByPattern(ctx context.Context, client *redis.Client, pattern string) error {
 	var cursor uint64
 	for {
-		keys, nextCursor, err := client.Scan(ctx, cursor, "match:*", 100).Result()
+		keys, nextCursor, err := client.Scan(ctx, cursor, pattern, 100).Result()
 		if err != nil {
 			return err
 		}
@@ -125,6 +135,21 @@ func TestMatchServiceGRPCLifecycle(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	_, err := client.RegisterGameServer(ctx, &pb.RegisterGameServerRequest{
+		Server: &pb.GameServer{
+			ServerId:    "grpc-room-1",
+			ServerType:  repository.GameServerTypeRoom,
+			Addr:        "127.0.0.1:7001",
+			MatchMode:   "duel",
+			Capacity:    8,
+			CurrentLoad: 0,
+			Status:      repository.GameServerStatusActive,
+		},
+	})
+	if err != nil {
+		t.Fatalf("register roomserver: %v", err)
+	}
+
 	first, err := client.CreateMatchTicket(ctx, &pb.CreateMatchTicketRequest{
 		PlayerId:  "grpc-p1",
 		MmrScore:  1200,
@@ -172,5 +197,8 @@ func TestMatchServiceGRPCLifecycle(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.GetResult().GetPlayerIds(), []string{"grpc-p1", "grpc-p2"}) {
 		t.Fatalf("unexpected matched players: %#v", result.GetResult().GetPlayerIds())
+	}
+	if result.GetResult().GetServerId() == "" || result.GetResult().GetServerAddr() == "" {
+		t.Fatalf("expected roomserver assignment in match result: %#v", result.GetResult())
 	}
 }

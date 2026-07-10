@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -19,22 +21,29 @@ import (
 
 const (
 	defaultHeartbeatInterval = 10 * time.Second
-	requestMaxBytes          = 1024 * 1024
+	requestMaxBytes          = 64 * 1024
 	httpRequestTimeout       = 3 * time.Second
+	connectionIdleTimeout    = 30 * time.Second
+	defaultMaxConnections    = 1024
 )
 
 type Server struct {
 	config Config
 	client *http.Client
 
-	mu          sync.Mutex
-	rooms       map[string]*roomState
-	playerRooms map[string]string
+	mu             sync.Mutex
+	rooms          map[string]*roomState
+	playerRooms    map[string]string
+	playerSessions map[string]string
+	connections    chan struct{}
 }
 
 func NewServer(config Config) *Server {
 	if config.MatchMode == "" {
 		config.MatchMode = DefaultMatchMode
+	}
+	if strings.TrimSpace(config.PublicAddr) == "" {
+		config.PublicAddr = config.Addr
 	}
 	if config.Capacity <= 0 {
 		config.Capacity = DefaultCapacity
@@ -42,11 +51,16 @@ func NewServer(config Config) *Server {
 	if config.HeartbeatInterval <= 0 {
 		config.HeartbeatInterval = defaultHeartbeatInterval
 	}
+	if config.MaxConnections <= 0 {
+		config.MaxConnections = defaultMaxConnections
+	}
 	return &Server{
-		config:      config,
-		client:      &http.Client{Timeout: httpRequestTimeout},
-		rooms:       make(map[string]*roomState),
-		playerRooms: make(map[string]string),
+		config:         config,
+		client:         &http.Client{Timeout: httpRequestTimeout},
+		rooms:          make(map[string]*roomState),
+		playerRooms:    make(map[string]string),
+		playerSessions: make(map[string]string),
+		connections:    make(chan struct{}, config.MaxConnections),
 	}
 }
 
@@ -68,7 +82,15 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 			}
 			return err
 		}
-		go s.handleConn(ctx, conn)
+		select {
+		case s.connections <- struct{}{}:
+			go func() {
+				defer func() { <-s.connections }()
+				s.handleConn(ctx, conn)
+			}()
+		default:
+			_ = conn.Close()
+		}
 	}
 }
 
@@ -79,7 +101,7 @@ func (s *Server) Register(ctx context.Context) error {
 	payload := GameServerRegistration{
 		ServerID:    s.config.ServerID,
 		ServerType:  DefaultServerType,
-		Addr:        s.config.Addr,
+		Addr:        s.config.PublicAddr,
 		Region:      DefaultRegion,
 		MatchMode:   s.config.MatchMode,
 		Capacity:    s.config.Capacity,
@@ -135,12 +157,26 @@ func (s *Server) currentLoad() int64 {
 
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
+	sessionID := fmt.Sprintf("%s-%d", conn.RemoteAddr(), time.Now().UnixNano())
+	joinedPlayers := make(map[string]string)
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		now := time.Now()
+		for playerID, roomID := range joinedPlayers {
+			if s.playerSessions[playerID] == sessionID {
+				s.removePlayerLocked(roomID, playerID, now)
+			}
+		}
+	}()
 
 	reader := bufio.NewScanner(conn)
 	reader.Buffer(make([]byte, 0, 4096), requestMaxBytes)
 	writer := bufio.NewWriter(conn)
+	_ = conn.SetReadDeadline(time.Now().Add(connectionIdleTimeout))
 
 	for reader.Scan() {
+		_ = conn.SetReadDeadline(time.Now().Add(connectionIdleTimeout))
 		select {
 		case <-ctx.Done():
 			return
@@ -152,7 +188,12 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			writeResponse(writer, Response{Type: TypeError, Message: "invalid json request"})
 			continue
 		}
-		for _, resp := range s.handleRequest(req) {
+		for _, resp := range s.handleRequestWithSession(req, sessionID) {
+			if resp.Type == TypeJoined {
+				joinedPlayers[resp.PlayerID] = resp.RoomID
+			} else if resp.Type == TypeLeft {
+				delete(joinedPlayers, resp.PlayerID)
+			}
 			writeResponse(writer, resp)
 		}
 	}
@@ -162,9 +203,13 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 }
 
 func (s *Server) handleRequest(req Request) []Response {
+	return s.handleRequestWithSession(req, "")
+}
+
+func (s *Server) handleRequestWithSession(req Request, sessionID string) []Response {
 	switch req.Type {
 	case TypeJoin:
-		return s.join(req.RoomID, req.PlayerID)
+		return s.join(req.RoomID, req.PlayerID, req.MatchID, req.JoinToken, sessionID)
 	case TypeReady:
 		return s.ready(req.RoomID, req.PlayerID)
 	case TypeLeave:
@@ -176,12 +221,15 @@ func (s *Server) handleRequest(req Request) []Response {
 	}
 }
 
-func (s *Server) join(roomID, playerID string) []Response {
+func (s *Server) join(roomID, playerID, matchID, joinToken, sessionID string) []Response {
 	if strings.TrimSpace(roomID) == "" {
 		return []Response{{Type: TypeError, Message: "room_id is required"}}
 	}
 	if strings.TrimSpace(playerID) == "" {
 		return []Response{{Type: TypeError, Message: "player_id is required"}}
+	}
+	if err := s.authorizeJoin(roomID, playerID, matchID, joinToken); err != nil {
+		return []Response{{Type: TypeError, Message: err.Error()}}
 	}
 
 	s.mu.Lock()
@@ -196,6 +244,9 @@ func (s *Server) join(roomID, playerID string) []Response {
 	room.players[playerID] = struct{}{}
 	room.updatedAt = now
 	s.playerRooms[playerID] = roomID
+	if sessionID != "" {
+		s.playerSessions[playerID] = sessionID
+	}
 
 	return []Response{{
 		Type:     TypeJoined,
@@ -203,6 +254,51 @@ func (s *Server) join(roomID, playerID string) []Response {
 		PlayerID: playerID,
 		Players:  sortedKeys(room.players),
 	}}
+}
+
+func (s *Server) authorizeJoin(roomID, playerID, matchID, joinToken string) error {
+	if s.config.AllowUnverifiedJoin {
+		return nil
+	}
+	if strings.TrimSpace(matchID) == "" || strings.TrimSpace(joinToken) == "" {
+		return errors.New("match_id and join_token are required")
+	}
+	if strings.TrimSpace(s.config.CoreRankHTTP) == "" {
+		return errors.New("match assignment verification is unavailable")
+	}
+
+	base := strings.TrimRight(s.config.CoreRankHTTP, "/")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		base+"/api/match/results/"+url.PathEscape(matchID), nil)
+	if err != nil {
+		return errors.New("invalid match assignment request")
+	}
+	s.addAPIKey(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return errors.New("match assignment verification failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("match assignment was not found")
+	}
+	var assignment MatchAssignment
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, requestMaxBytes))
+	if err := decoder.Decode(&assignment); err != nil {
+		return errors.New("invalid match assignment response")
+	}
+	if assignment.MatchID != matchID || assignment.RoomID != roomID || assignment.ServerID != s.config.ServerID || assignment.Status != "matched" {
+		return errors.New("match assignment does not target this room server")
+	}
+	if subtle.ConstantTimeCompare([]byte(assignment.JoinToken), []byte(joinToken)) != 1 {
+		return errors.New("invalid join token")
+	}
+	for _, assignedPlayerID := range assignment.PlayerIDs {
+		if assignedPlayerID == playerID {
+			return nil
+		}
+	}
+	return errors.New("player is not assigned to this match")
 }
 
 func (s *Server) ready(roomID, playerID string) []Response {
@@ -288,6 +384,7 @@ func (s *Server) removePlayerLocked(roomID, playerID string, now time.Time) {
 	if !ok {
 		if currentRoomID, mapped := s.playerRooms[playerID]; mapped && currentRoomID == roomID {
 			delete(s.playerRooms, playerID)
+			delete(s.playerSessions, playerID)
 		}
 		return
 	}
@@ -295,6 +392,7 @@ func (s *Server) removePlayerLocked(roomID, playerID string, now time.Time) {
 	delete(room.readyPlayers, playerID)
 	if currentRoomID, mapped := s.playerRooms[playerID]; mapped && currentRoomID == roomID {
 		delete(s.playerRooms, playerID)
+		delete(s.playerSessions, playerID)
 	}
 	room.updatedAt = now
 	if len(room.players) == 0 {
@@ -313,6 +411,7 @@ func (s *Server) postJSON(ctx context.Context, path string, payload any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	s.addAPIKey(req)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -324,6 +423,12 @@ func (s *Server) postJSON(ctx context.Context, path string, payload any) error {
 		return fmt.Errorf("CoreRank returned %s for %s", resp.Status, path)
 	}
 	return nil
+}
+
+func (s *Server) addAPIKey(req *http.Request) {
+	if apiKey := strings.TrimSpace(s.config.APIKey); apiKey != "" {
+		req.Header.Set("X-CoreRank-API-Key", apiKey)
+	}
 }
 
 func writeResponse(writer *bufio.Writer, resp Response) error {

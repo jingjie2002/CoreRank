@@ -16,12 +16,13 @@ func handleAgentCapabilities(w http.ResponseWriter, _ *http.Request) {
 			"description": "Game matchmaking and leaderboard backend service.",
 		},
 		"health": map[string]string{
-			"primary": "/healthz",
-			"legacy":  "/health",
+			"primary":  "/readyz",
+			"liveness": "/healthz",
+			"legacy":   "/health",
 		},
 		"metrics": map[string]string{
 			"prometheus": "/metrics",
-			"default":    "http://127.0.0.1:9091/metrics",
+			"default":    "http://127.0.0.1:19080/metrics",
 		},
 		"commands": []map[string]string{
 			{"name": "test", "command": "go test ./...", "mode": "自动审查"},
@@ -41,7 +42,7 @@ func handleAgentCapabilities(w http.ResponseWriter, _ *http.Request) {
 			"agent_logs",
 		},
 		"read_tools": []string{
-			"GET /healthz",
+			"GET /readyz",
 			"GET /metrics",
 			"GET /api/agent/events",
 			"GET /api/agent/logs",

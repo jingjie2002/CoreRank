@@ -9,15 +9,23 @@ import (
 	"log"
 	"time"
 
-	"CoreRank/internal/metrics"
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/metrics"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 const (
-	defaultMatchMode    = "default"
+	defaultMatchMode    = repository.DefaultMatchMode
 	defaultMaxWait      = 30 * time.Second
+	maxMatchWait        = 10 * time.Minute
 	matchPlayersPerRoom = 2
 	defaultMatchDelta   = 200
+	maxMMRScore         = 10000
+	maxPlayerIDLength   = 64
+)
+
+var (
+	ErrInvalidMMRScore = errors.New("mmr_score must be between 0 and 10000")
+	ErrInvalidMaxWait  = errors.New("max_wait must be between 1 second and 10 minutes")
 )
 
 type CreateMatchTicketRequest struct {
@@ -81,15 +89,33 @@ func (s *MatchService) ListGameServers(ctx context.Context, matchMode string) ([
 	return s.roomServerRepo.ListGameServers(ctx, matchMode)
 }
 
-func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRequest) (*repository.MatchTicket, error) {
-	if req.PlayerID == "" {
-		return nil, errors.New("player_id is required")
+func (s *MatchService) ReleaseExpiredRoomAssignments(ctx context.Context, now time.Time, limit int64) (int, error) {
+	if s.roomServerRepo == nil {
+		return 0, nil
 	}
-	if req.MatchMode == "" {
-		req.MatchMode = defaultMatchMode
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return s.roomServerRepo.ReleaseExpiredRoomAssignments(ctx, now.UnixMilli(), limit)
+}
+
+func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRequest) (*repository.MatchTicket, error) {
+	if err := repository.ValidateIdentifier("player_id", req.PlayerID, maxPlayerIDLength); err != nil {
+		return nil, fmt.Errorf("invalid player_id: %w", err)
+	}
+	matchMode, err := repository.NormalizeMatchMode(req.MatchMode)
+	if err != nil {
+		return nil, err
+	}
+	req.MatchMode = matchMode
+	if req.MMRScore < 0 || req.MMRScore > maxMMRScore {
+		return nil, ErrInvalidMMRScore
 	}
 	if req.MaxWait <= 0 {
 		req.MaxWait = defaultMaxWait
+	}
+	if req.MaxWait < time.Second || req.MaxWait > maxMatchWait {
+		return nil, ErrInvalidMaxWait
 	}
 
 	now := time.Now()
@@ -107,7 +133,7 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 	if err := s.playerRepo.CreateMatchTicket(ctx, ticket, req.MaxWait+5*time.Minute); err != nil {
 		return nil, err
 	}
-	defer s.refreshQueuedTicketGauge(ctx)
+	defer s.refreshQueuedTicketGauge(ctx, req.MatchMode)
 	metrics.RecordMatchTicketEvents(req.MatchMode, repository.MatchStatusQueued, 1)
 
 	if s.mysqlRepo != nil {
@@ -116,7 +142,7 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 		}
 	}
 
-	_, err := s.TryCompleteMatch(ctx, req.MMRScore, req.MatchMode)
+	_, err = s.TryCompleteMatch(ctx, req.MMRScore, req.MatchMode)
 	if err != nil {
 		if errors.Is(err, repository.ErrNoAvailableRoomServer) {
 			log.Printf("[CoreRank] room server allocation unavailable; ticket stays queued: %v", err)
@@ -138,15 +164,15 @@ func (s *MatchService) CreateTicket(ctx context.Context, req CreateMatchTicketRe
 }
 
 func (s *MatchService) GetTicket(ctx context.Context, ticketID string) (*repository.MatchTicket, error) {
-	if ticketID == "" {
-		return nil, repository.ErrTicketNotFound
+	if err := repository.ValidateIdentifier("ticket_id", ticketID, 96); err != nil {
+		return nil, err
 	}
 	return s.playerRepo.GetMatchTicket(ctx, ticketID)
 }
 
 func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repository.MatchTicket, error) {
-	if ticketID == "" {
-		return nil, repository.ErrTicketNotFound
+	if err := repository.ValidateIdentifier("ticket_id", ticketID, 96); err != nil {
+		return nil, err
 	}
 	ticket, err := s.playerRepo.CancelMatchTicket(ctx, ticketID, time.Now().UnixMilli())
 	if err != nil {
@@ -160,7 +186,7 @@ func (s *MatchService) CancelTicket(ctx context.Context, ticketID string) (*repo
 	metrics.RecordMatchCancelled(ticket.MatchMode)
 	metrics.RecordMatchTicketEvents(ticket.MatchMode, ticket.Status, 1)
 	metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
-	s.refreshQueuedTicketGauge(ctx)
+	s.refreshQueuedTicketGauge(ctx, ticket.MatchMode)
 	return ticket, nil
 }
 
@@ -183,23 +209,26 @@ func (s *MatchService) TimeoutExpiredTickets(ctx context.Context, now time.Time,
 		metrics.RecordMatchTimeout(ticket.MatchMode)
 		metrics.RecordMatchTicketEvents(ticket.MatchMode, ticket.Status, 1)
 		metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
-	}
-	if len(tickets) > 0 {
-		s.refreshQueuedTicketGauge(ctx)
+		s.refreshQueuedTicketGauge(ctx, ticket.MatchMode)
 	}
 	return tickets, nil
 }
 
 func (s *MatchService) GetResult(ctx context.Context, matchID string) (*repository.MatchResult, error) {
-	if matchID == "" {
-		return nil, repository.ErrResultNotFound
+	if err := repository.ValidateIdentifier("match_id", matchID, 96); err != nil {
+		return nil, err
 	}
 	return s.playerRepo.GetMatchResult(ctx, matchID)
 }
 
 func (s *MatchService) TryCompleteMatch(ctx context.Context, centerScore int64, matchMode string) (*repository.MatchResult, error) {
+	normalizedMode, err := repository.NormalizeMatchMode(matchMode)
+	if err != nil {
+		return nil, err
+	}
 	players, err := s.playerRepo.SearchAndPickTicketPlayers(
 		ctx,
+		normalizedMode,
 		centerScore-defaultMatchDelta,
 		centerScore+defaultMatchDelta,
 		matchPlayersPerRoom,
@@ -207,7 +236,7 @@ func (s *MatchService) TryCompleteMatch(ctx context.Context, centerScore int64, 
 	if err != nil {
 		return nil, err
 	}
-	return s.completePickedPlayers(ctx, players, matchMode, true)
+	return s.completePickedPlayers(ctx, players, normalizedMode, true)
 }
 
 func (s *MatchService) CompletePickedPlayers(ctx context.Context, players []string, matchMode string) (*repository.MatchResult, error) {
@@ -218,9 +247,14 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 	if len(players) < matchPlayersPerRoom {
 		return nil, nil
 	}
-	if matchMode == "" {
-		matchMode = defaultMatchMode
+	normalizedMode, err := repository.NormalizeMatchMode(matchMode)
+	if err != nil {
+		if requeueOnFailure {
+			return nil, errors.Join(err, s.playerRepo.RequeueMatchTicketPlayers(ctx, players))
+		}
+		return nil, err
 	}
+	matchMode = normalizedMode
 
 	now := time.Now().UnixMilli()
 	matchID := newID("match")
@@ -236,7 +270,7 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 			if requeueErr := s.playerRepo.RequeueMatchTicketPlayers(ctx, players); requeueErr != nil {
 				return nil, errors.Join(err, requeueErr)
 			}
-			s.refreshQueuedTicketGauge(ctx)
+			s.refreshQueuedTicketGauge(ctx, matchMode)
 		}
 		return nil, err
 	}
@@ -255,6 +289,7 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 		MatchMode:  matchMode,
 		Status:     repository.MatchStatusMatched,
 		CreatedAt:  now,
+		JoinToken:  newJoinToken(),
 	}
 	completed, tickets, err := s.playerRepo.CompleteMatch(ctx, players, result)
 	if err != nil || completed == nil {
@@ -262,7 +297,7 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 		var requeueErr error
 		if requeueOnFailure {
 			requeueErr = s.playerRepo.RequeueMatchTicketPlayers(ctx, players)
-			s.refreshQueuedTicketGauge(ctx)
+			s.refreshQueuedTicketGauge(ctx, matchMode)
 		}
 		return completed, errors.Join(err, releaseErr, requeueErr)
 	}
@@ -272,9 +307,6 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 	assignment.PlayerIDs = append([]string(nil), completed.PlayerIDs...)
 	assignment.Status = repository.RoomAssignmentStatusAssigned
 	assignment.CreatedAt = completed.CreatedAt
-	if err := s.roomAllocator.SaveAssignment(ctx, assignment); err != nil {
-		log.Printf("[CoreRank] room assignment persist failed; returning match result: %v", err)
-	}
 	if s.mysqlRepo != nil {
 		if err := s.mysqlRepo.UpsertMatchResult(ctx, *completed); err != nil {
 			log.Printf("[CoreRank] MySQL match result persist failed; returning Redis match result: %v", err)
@@ -294,17 +326,22 @@ func (s *MatchService) completePickedPlayers(ctx context.Context, players []stri
 	for _, ticket := range tickets {
 		metrics.ObserveMatchLifecycle(ticket.MatchMode, ticket.Status, ticket.CreatedAt, ticket.UpdatedAt)
 	}
-	s.refreshQueuedTicketGauge(ctx)
+	s.refreshQueuedTicketGauge(ctx, matchMode)
 	return completed, nil
 }
 
-func (s *MatchService) refreshQueuedTicketGauge(ctx context.Context) {
-	count, err := s.playerRepo.CountQueuedMatchTickets(ctx)
+func (s *MatchService) refreshQueuedTicketGauge(ctx context.Context, matchMode string) {
+	mode, err := repository.NormalizeMatchMode(matchMode)
 	if err != nil {
-		log.Printf("[CoreRank] refresh queued ticket metric failed: %v", err)
+		log.Printf("[CoreRank] refresh queued ticket metric skipped invalid mode: %v", err)
 		return
 	}
-	metrics.SetQueuedTickets("all", count)
+	count, err := s.playerRepo.CountQueuedMatchTickets(ctx, mode)
+	if err != nil {
+		log.Printf("[CoreRank] refresh queued ticket metric failed for mode %q: %v", mode, err)
+		return
+	}
+	metrics.SetQueuedTickets(mode, count)
 }
 
 func newID(prefix string) string {
@@ -313,4 +350,12 @@ func newID(prefix string) string {
 		return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(raw[:]))
 	}
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+}
+
+func newJoinToken() string {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err == nil {
+		return "join_" + hex.EncodeToString(raw[:])
+	}
+	return newID("join")
 }

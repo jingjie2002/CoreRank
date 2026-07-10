@@ -12,7 +12,7 @@ import (
 )
 
 func TestRoomServerJoinReadyLeave(t *testing.T) {
-	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0"})
+	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0", AllowUnverifiedJoin: true})
 	client, cleanup := startTestServer(t, server)
 	defer cleanup()
 
@@ -70,7 +70,7 @@ func TestRoomServerJoinReadyLeave(t *testing.T) {
 }
 
 func TestRoomServerRejectsReadyBeforeJoin(t *testing.T) {
-	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0"})
+	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0", AllowUnverifiedJoin: true})
 	client, cleanup := startTestServer(t, server)
 	defer cleanup()
 
@@ -84,8 +84,56 @@ func TestRoomServerRejectsReadyBeforeJoin(t *testing.T) {
 	}
 }
 
+func TestRoomServerValidatesMatchAssignmentBeforeJoin(t *testing.T) {
+	assignmentAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/match/results/match_1" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(MatchAssignment{
+			MatchID: "match_1", RoomID: "room_1", ServerID: "strict-room-1",
+			PlayerIDs: []string{"p1", "p2"}, Status: "matched", JoinToken: "join-secret",
+		})
+	}))
+	defer assignmentAPI.Close()
+
+	server := NewServer(Config{
+		ServerID: "strict-room-1", Addr: "127.0.0.1:0", CoreRankHTTP: assignmentAPI.URL,
+	})
+	client, cleanup := startTestServer(t, server)
+	defer cleanup()
+
+	sendRequest(t, client, Request{
+		Type: TypeJoin, RoomID: "room_1", PlayerID: "outsider", MatchID: "match_1", JoinToken: "join-secret",
+	})
+	if resp := readResponse(t, client); resp.Type != TypeError || resp.Message != "player is not assigned to this match" {
+		t.Fatalf("outsider join must be rejected, got %#v", resp)
+	}
+
+	sendRequest(t, client, Request{
+		Type: TypeJoin, RoomID: "room_1", PlayerID: "p1", MatchID: "match_1", JoinToken: "wrong-token",
+	})
+	if resp := readResponse(t, client); resp.Type != TypeError || resp.Message != "invalid join token" {
+		t.Fatalf("wrong token must be rejected, got %#v", resp)
+	}
+
+	sendRequest(t, client, Request{
+		Type: TypeJoin, RoomID: "room_1", PlayerID: "p1", MatchID: "match_1", JoinToken: "join-secret",
+	})
+	assertResponse(t, client, Response{Type: TypeJoined, RoomID: "room_1", PlayerID: "p1", Players: []string{"p1"}})
+	_ = client.conn.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := server.RoomSnapshot("room_1"); !ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("disconnect must remove the connection-owned player state")
+}
+
 func TestRoomServerPing(t *testing.T) {
-	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0"})
+	server := NewServer(Config{ServerID: "test-room-1", Addr: "127.0.0.1:0", AllowUnverifiedJoin: true})
 	client, cleanup := startTestServer(t, server)
 	defer cleanup()
 
@@ -113,11 +161,12 @@ func TestRoomServerRegisterAndHeartbeat(t *testing.T) {
 	defer httpServer.Close()
 
 	server := NewServer(Config{
-		ServerID:     "demo-room-1",
-		Addr:         "127.0.0.1:7001",
-		CoreRankHTTP: httpServer.URL,
-		MatchMode:    "duel",
-		Capacity:     8,
+		ServerID:            "demo-room-1",
+		Addr:                "127.0.0.1:7001",
+		CoreRankHTTP:        httpServer.URL,
+		MatchMode:           "duel",
+		Capacity:            8,
+		AllowUnverifiedJoin: true,
 	})
 	_ = server.handleRequest(Request{Type: TypeJoin, RoomID: "room_1", PlayerID: "p4"})
 
@@ -142,6 +191,33 @@ func TestRoomServerRegisterAndHeartbeat(t *testing.T) {
 	}
 	if requests[1].Body["current_load"] != float64(1) {
 		t.Fatalf("unexpected heartbeat load: %#v", requests[1].Body)
+	}
+}
+
+func TestRoomServerRegisterUsesPublicAddr(t *testing.T) {
+	var body map[string]any
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer httpServer.Close()
+
+	server := NewServer(Config{
+		ServerID:     "compose-room-1",
+		Addr:         ":7001",
+		PublicAddr:   "127.0.0.1:7001",
+		CoreRankHTTP: httpServer.URL,
+		MatchMode:    "duel",
+	})
+
+	if err := server.Register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if body["addr"] != "127.0.0.1:7001" {
+		t.Fatalf("unexpected public addr: %#v", body)
 	}
 }
 

@@ -1,47 +1,26 @@
-# CoreRank Agent 接入说明
+# Agent 接入说明
 
-CoreRank 已补齐 Agent-ready 基础能力，供后续 `GameServerProjectAgent` 通过统一规范识别、审查和诊断。
+`agent.yaml` 使用相对项目根目录，不依赖开发者机器上的绝对路径。
 
-## 接入入口
+推荐只读入口：
 
-| 项目 | 路径 |
+| 能力 | 地址 |
 |---|---|
-| 项目声明 | `agent.yaml` |
-| 健康检查 | `GET /healthz` |
-| 旧健康检查兼容 | `GET /health` |
-| 能力声明 | `GET /api/agent/capabilities` |
-| 指标 | `GET /metrics`，默认 metrics 端口 `9091` |
-| Agent events | `GET /api/agent/events` |
-| Agent logs | `GET /api/agent/logs` |
-| Smoke test | `python scripts/agent_smoke.py` |
+| 后端就绪 | `GET http://127.0.0.1:8081/readyz` |
+| gateway 存活 | `GET http://127.0.0.1:8081/healthz` |
+| gateway metrics | `GET http://127.0.0.1:19080/metrics` |
+| rank metrics | `GET http://127.0.0.1:19081/metrics` |
+| match metrics | `GET http://127.0.0.1:19082/metrics` |
+| 能力清单 | `GET /api/agent/capabilities` |
 
-## Agent 可做
+设置 `CORERANK_API_KEY` 后，`/api/*` 请求必须携带 `X-CoreRank-API-Key`。Agent 默认不应执行结算、排行榜写入、Redis 清理、生产部署或任何不可恢复操作；需要写入时必须由使用者明确确认目标环境与数据范围。
 
-- 读取 `agent.yaml`、README 和 docs。
-- 调用 `/healthz` 判断 CoreRank 是否在线。
-- 调用 `/api/agent/capabilities` 获取项目能力表。
-- 在自动审查模式运行 `go test ./...`、`go vet ./...` 和 Agent smoke test。
-- 读取排行榜、玩家排名、匹配票据、匹配结果和房间服列表，用于诊断匹配超时、房间资源不足或排行榜异常。
-
-## Agent 不默认做
-
-- 不直接删除 Redis 数据。
-- 不在生产环境自动写排行榜分数。
-- 不在生产环境自动执行比赛结算。
-- 不自动部署或重启生产服务。
-
-这些操作后续即使接入 Agent，也必须进入 `完全访问权限`，并由用户明确确认。
-
-## 本地验证
-
-服务运行后：
+验证命令：
 
 ```powershell
-python scripts\agent_smoke.py
+go test ./...
+go vet ./...
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 ```
 
-只验证本地声明文件，不要求服务已启动：
-
-```powershell
-python scripts\agent_smoke.py --offline
-```
+`/api/agent/events` 和 `/api/agent/logs` 只返回可读取的数据源说明，不代表项目实现了事件缓冲或持久日志系统。

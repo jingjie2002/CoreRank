@@ -10,7 +10,7 @@ Go 游戏匹配与排行榜中台
 
 它不是完整游戏服务器，也不是游戏客户端。它是一个运行在服务端的中间服务，负责处理竞技游戏服务端中常见的匹配、排行榜、匹配结果和数据沉淀能力。
 
-最终简历定位建议：
+最终项目定位建议：
 
 ```text
 CoreRank 游戏匹配与排行榜中台（Go）
@@ -43,17 +43,17 @@ CoreRank 对外通常有两类入口：
 | 环境 | 跑在哪里 | 目的 |
 |---|---|---|
 | 本地开发环境 | 你的 Windows / WSL / 本机 Docker | 写代码、跑单测、跑 demo、验证接口 |
-| 测试/演示环境 | 一台 Linux 云服务器或本机 Docker Compose | 模拟真实服务部署，给面试和演示用 |
+| 测试/演示环境 | 一台 Linux 云服务器或本机 Docker Compose | 模拟真实服务部署，验证部署和演示流程 |
 | 生产环境 | 公司内网服务器、容器平台或 Kubernetes | 多实例部署、接入真实游戏网关和数据库 |
 
-对简历项目来说，不需要真的做生产环境。最合理目标是：
+对当前项目来说，不需要真的做生产环境。最合理目标是：
 
 - 本地能一键跑。
 - Docker Compose 能拉起依赖。
 - 可选在一台 Linux 云服务器上演示。
 - GitHub 上有 README、CI、测试脚本和验证记录。
 
-这已经足够支撑校招/实习项目可信度。
+这已经足够支撑公开项目可信度。
 
 ## 3. 最终优化路线
 
@@ -61,7 +61,7 @@ CoreRank 对外通常有两类入口：
 
 ### 阶段 0：可信展示基线
 
-目标：先让项目能安全公开展示，避免“简历写了但 GitHub 看不到”的风险。
+目标：先让项目能安全公开展示，避免“文档声明和仓库内容不一致”的风险。
 
 要做：
 
@@ -201,7 +201,7 @@ rank_snapshots
 
 ### 阶段 3：可观测性、压测与公开文档
 
-目标：让项目变成可被面试官信任的公开项目。
+目标：让项目变成可被评审者和使用者信任的公开项目。
 
 当前执行状态：
 
@@ -210,8 +210,8 @@ rank_snapshots
 - `docs/api.md` 已补。
 - `docs/architecture.md` 已补。
 - `docs/benchmark.md` 已补本机 Robot 压测记录。
-- `docs/demo-guide.md` 已补本地测试与面试演示指南。
-- `docs/interview-notes.md` 已整理。
+- `docs/demo-guide.md` 已补本地测试与演示指南。
+- `docs/technical-notes.md` 已整理。
 - Docker Compose 已补 MySQL service、Grafana datasource provisioning 和基础 dashboard，并完成本机运行验证。
 - 本机 Prometheus 已采集 `UpdateScore` P95/P99 短窗口结果；服务器部署验证仍未完成。
 
@@ -227,8 +227,8 @@ rank_snapshots
 - 补 `docs/api.md`。已补。
 - 补 `docs/architecture.md`。已补。
 - 补 `docs/benchmark.md`。已补本机 Robot 压测记录。
-- 补 `docs/demo-guide.md`。已补本地测试与面试演示指南。
-- 整理 `docs/interview-notes.md`。
+- 补 `docs/demo-guide.md`。已补本地测试与演示指南。
+- 整理 `docs/technical-notes.md`。
 - 补 `docs/observability.md`。已补本地观测栈说明。
 - 本机验证 Grafana dashboard 和 Prometheus P95/P99 查询。已补，见 `docs/benchmark.md`。
 
@@ -247,7 +247,7 @@ CoreRank 应该分层测试，不是只靠跑一次 demo。
 推荐测试金字塔：
 
 ```text
-手工演示 / 面试演示
+手工演示 / 端到端演示
 E2E 流程测试
 REST/gRPC API 测试
 Redis/MySQL 集成测试
@@ -414,7 +414,7 @@ go test ./... -tags=integration
 - 测试机器环境。
 - Redis/MySQL 是否本机。
 
-## 7. 本地测试、服务器测试和面试演示怎么分
+## 7. 本地测试、服务器测试和演示验证怎么分
 
 ### 本地测试
 
@@ -464,9 +464,9 @@ go test ./... -tags=integration
 - 不必做多机 Redis Cluster。
 - 不必做生产级高可用。
 
-### 面试演示
+### 演示验证
 
-面试演示应该简短、稳定、可解释。
+演示验证应该简短、稳定、可解释。
 
 推荐演示路径：
 
@@ -478,7 +478,7 @@ go test ./... -tags=integration
 6. 展示 Redis Lua 脚本。
 7. 展示匹配生命周期或 MySQL 表设计文档。
 
-不要现场演示过于复杂的部署。面试官更关心你是否讲得清楚，而不是你现场搭云服务器。
+不要现场演示过于复杂的部署。使用者更关心系统边界、验证步骤和结果是否清楚，而不是现场搭建完整云环境。
 
 ## 8. 为什么按这个顺序做
 
@@ -512,7 +512,7 @@ go test ./... -tags=integration
 
 - 不重开新项目。
 - 不先做 `ArenaGate`。
-- 不直接改简历写未实现功能。
+- 不在项目文档中声明未实现功能。
 - 不宣称 Redis Cluster。
 - 不宣称生产级高并发。
 - 不写生产级 P99 承诺。
@@ -522,8 +522,8 @@ go test ./... -tags=integration
 原因：
 
 - 这些会分散第一项目深度。
-- 实现成本高，但对当前投递提升不一定高。
-- 容易被面试官追问穿。
+- 实现成本高，但对当前项目质量提升不一定高。
+- 容易造成文档声明和实际能力不一致。
 
 ## 10. 最终执行建议
 

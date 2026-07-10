@@ -19,15 +19,30 @@ global:
 # 定义要抓取的目标服务
 scrape_configs:
   # ============================================================================
-  # CoreRank Go 服务
+  # CoreRank 分布式 Go 服务
   # ============================================================================
-  - job_name: 'corerank-server'
-    # 静态配置目标地址
+  - job_name: 'corerank-gateway'
     static_configs:
-      - targets: ['host.docker.internal:9091']
+      - targets: ['corerank-gateway:19080']
         labels:
-          # 添加标签便于查询过滤
           app: 'corerank'
+          service: 'gateway'
+          env: 'development'
+
+  - job_name: 'corerank-rank-service'
+    static_configs:
+      - targets: ['corerank-rank-service:19081']
+        labels:
+          app: 'corerank'
+          service: 'rank-service'
+          env: 'development'
+
+  - job_name: 'corerank-match-service'
+    static_configs:
+      - targets: ['corerank-match-service:19082']
+        labels:
+          app: 'corerank'
+          service: 'match-service'
           env: 'development'
 
   # ============================================================================

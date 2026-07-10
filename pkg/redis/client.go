@@ -180,12 +180,12 @@ func (c *Client) Ping(ctx context.Context) error {
 	// Go 1.25 的 context 包有更好的性能优化
 	result, err := c.rdb.Ping(ctx).Result()
 	if err != nil {
-		return fmt.Errorf("Redis 连接失败: %w", err)
+		return fmt.Errorf("redis 连接失败: %w", err)
 	}
 
 	// Redis PING 命令成功时返回 "PONG"
 	if result != "PONG" {
-		return fmt.Errorf("Redis 响应异常: 期望 PONG, 实际 %s", result)
+		return fmt.Errorf("redis 响应异常: 期望 PONG, 实际 %s", result)
 	}
 
 	return nil

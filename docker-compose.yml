@@ -8,10 +8,15 @@ services:
     image: redis:7.2-alpine
     container_name: corerank-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${CORERANK_REDIS_PORT:-6379}:6379"
     volumes:
       - ./data/redis:/data
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   # ============================================================================
@@ -22,7 +27,7 @@ services:
     image: mysql:8.4
     container_name: corerank-mysql
     ports:
-      - "${CORERANK_MYSQL_PORT:-3307}:3306"
+      - "127.0.0.1:${CORERANK_MYSQL_PORT:-3307}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${CORERANK_MYSQL_ROOT_PASSWORD:-corerank_root}
       MYSQL_DATABASE: ${CORERANK_MYSQL_DATABASE:-corerank}
@@ -42,15 +47,118 @@ services:
     restart: unless-stopped
 
   # ============================================================================
+  # Rank Service - 排行榜独立 gRPC 服务
+  # ============================================================================
+  corerank-rank-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ./cmd/rank-service
+    image: corerank/rank-service:local
+    container_name: corerank-rank-service
+    ports:
+      - "127.0.0.1:18081:18081"
+      - "127.0.0.1:19081:19081"
+    environment:
+      REDIS_ADDR: corerank-redis:6379
+      RANK_GRPC_ADDR: :18081
+      RANK_METRICS_ADDR: :19081
+      CORERANK_MYSQL_DSN: ${CORERANK_MYSQL_DSN:-}
+      CORERANK_MYSQL_REQUIRED: ${CORERANK_MYSQL_REQUIRED:-false}
+    depends_on:
+      corerank-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================================
+  # Match Service - 匹配独立 gRPC 服务
+  # ============================================================================
+  corerank-match-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ./cmd/match-service
+    image: corerank/match-service:local
+    container_name: corerank-match-service
+    ports:
+      - "127.0.0.1:18082:18082"
+      - "127.0.0.1:19082:19082"
+    environment:
+      REDIS_ADDR: corerank-redis:6379
+      MATCH_GRPC_ADDR: :18082
+      MATCH_METRICS_ADDR: :19082
+      MATCH_WORKER_ENABLED: "true"
+      CORERANK_MYSQL_DSN: ${CORERANK_MYSQL_DSN:-}
+      CORERANK_MYSQL_REQUIRED: ${CORERANK_MYSQL_REQUIRED:-false}
+    depends_on:
+      corerank-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================================
+  # Gateway - HTTP API 网关
+  # ============================================================================
+  corerank-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ./cmd/gateway
+    image: corerank/gateway:local
+    container_name: corerank-gateway
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:19080:19080"
+    environment:
+      GATEWAY_HTTP_ADDR: :8081
+      GATEWAY_METRICS_ADDR: :19080
+      RANK_GRPC_TARGET: corerank-rank-service:18081
+      MATCH_GRPC_TARGET: corerank-match-service:18082
+      CORERANK_API_KEY: ${CORERANK_API_KEY:-}
+    depends_on:
+      - corerank-rank-service
+      - corerank-match-service
+    restart: unless-stopped
+
+  # ============================================================================
+  # RoomServer - TCP 房间服示例
+  # ============================================================================
+  corerank-roomserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ./cmd/roomserver
+    image: corerank/roomserver:local
+    container_name: corerank-roomserver
+    ports:
+      - "127.0.0.1:7001:7001"
+    environment:
+      ROOM_SERVER_ID: compose-room-1
+      ROOM_SERVER_ADDR: :7001
+      ROOM_SERVER_PUBLIC_ADDR: 127.0.0.1:7001
+      CORE_RANK_HTTP: http://corerank-gateway:8081
+      MATCH_MODE: duel
+      CAPACITY: 16
+      HEARTBEAT_INTERVAL: 2s
+      CORERANK_API_KEY: ${CORERANK_API_KEY:-}
+      ROOM_MAX_CONNECTIONS: 1024
+    depends_on:
+      - corerank-gateway
+    restart: unless-stopped
+
+  # ============================================================================
   # Prometheus - 监控数据采集
   # ============================================================================
   # Prometheus 定时抓取 Go 服务暴露的 /metrics 端点
   # 存储时序数据，支持 PromQL 查询
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     container_name: corerank-prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       # 挂载配置文件
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
@@ -63,6 +171,10 @@ services:
     extra_hosts:
       # 允许容器访问宿主机（Windows/Mac Docker Desktop）
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - corerank-gateway
+      - corerank-rank-service
+      - corerank-match-service
     restart: unless-stopped
 
   # ============================================================================
@@ -71,10 +183,10 @@ services:
   # Grafana 连接 Prometheus 数据源，提供可视化仪表盘
   # 默认账号密码：admin / admin
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.3.1
     container_name: corerank-grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       # 持久化存储（仪表盘、数据源配置等）
       - ./data/grafana:/var/lib/grafana
@@ -84,10 +196,9 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       # 初始管理员密码
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       # 允许匿名访问（仅开发环境）
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_ANONYMOUS_ENABLED=false
     depends_on:
       - prometheus
     restart: unless-stopped
