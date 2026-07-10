@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 const mysqlTestLockName = "corerank_mysql_tests"

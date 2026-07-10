@@ -1,80 +1,26 @@
-# CoreRank 部署与结算补强说明
+# 本地部署与结算
 
-## 1. 定位
-
-本文档记录 CoreRank V1.5 的两个补强点：
-
-- Linux / Docker 部署验证路线。
-- 战斗结束后的最小积分结算入口。
-
-当前仍不声明生产级高可用、Redis Cluster 或 Kubernetes 落地。
-
-## 2. Linux / Docker 验证路线
-
-推荐验证顺序：
+## 分布式本地栈
 
 ```powershell
-go test ./...
-go vet ./...
-go build -o tmp\corerank-server.exe ./cmd/server
-python scripts\rest_demo.py
-python scripts\room_tcp_demo.py
+Copy-Item .env.example .env
+docker compose build corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver
+docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 ```
 
-本地 Docker Compose：
+Compose 端口默认绑定 `127.0.0.1`。若设置 `CORERANK_API_KEY`，roomserver 和验证脚本必须使用同一值。
 
-```powershell
-docker compose up -d corerank-redis corerank-mysql prometheus grafana
-go run ./cmd/server
-```
+验收点：gateway `/readyz`、两个 gRPC health service、三个 metrics target、按模式匹配、授权 TCP join、原子结算、Prometheus 和 Grafana。
 
-Linux 或 Linux 容器环境应验证：
-
-- Redis 可连接。
-- CoreRank `/health` 返回 `ok`。
-- `/metrics` 可抓取。
-- RESTful 排行榜更新成功。
-- 匹配票据创建、取消、超时和结果查询成功。
-- roomserver 注册后，匹配结果包含 `server_id` 和 `server_addr`。
-
-## 3. 最小结算入口
-
-新增 RESTful 接口：
+## 结算语义
 
 ```http
 POST /api/matches/{match_id}/settle
 ```
 
-请求示例：
+该入口只接收整数绝对分数。RankService 会验证 scores 与 MatchResult 玩家集合完全相等，拒绝重复、缺失和 outsider；Redis Lua 原子批量写榜、保存幂等指纹、标记 MatchResult 并释放 room reservation。
 
-```json
-{
-  "leaderboard_type": "season:ss25",
-  "scores": [
-    {"player_id": "p1", "score": 1260},
-    {"player_id": "p2", "score": 1210}
-  ]
-}
-```
+同一 payload 可安全重放，不同 payload 会返回冲突。接口不实现战斗帧、技能伤害、ELO 计算或可信战斗服身份；API key 只是本地轻量保护。外部部署需要正式的服务身份和 TLS/mTLS。
 
-这个接口只做一件事：
-
-```text
-根据战斗结算后的绝对分数，更新指定排行榜。
-```
-
-它不做：
-
-- 战斗帧同步。
-- 技能、伤害、掉落。
-- 反作弊。
-- 胜负 ELO 计算。
-- 完整战斗服状态机。
-
-## 4. 项目说明口径
-
-建议说明：
-
-```text
-CoreRank 原本负责匹配和排行榜。V1.5 增加了最小结算入口，让链路从“匹配成功”延伸到“战斗结束后更新赛季榜”。战斗服仍然不是这个项目的范围，CoreRank 只接受可信后端传来的结算后分数。
-```
+MySQL 仍是 Redis 结算成功后的可选旁路写入，不在 Lua 原子事务中，也不是 Redis 恢复源。

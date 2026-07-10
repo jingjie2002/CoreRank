@@ -1,4 +1,4 @@
-module CoreRank
+module github.com/jingjie2002/CoreRank
 
 go 1.25.0
 

@@ -9,8 +9,8 @@ import (
 	"log"
 	"time"
 
-	"CoreRank/internal/metrics"
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/metrics"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 const (

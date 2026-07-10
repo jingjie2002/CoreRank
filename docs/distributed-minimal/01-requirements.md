@@ -1,4 +1,6 @@
-# CoreRank 最小分布式改造需求文档
+# CoreRank 最小分布式改造需求文档（历史设计基线）
+
+> 本文记录改造前的需求基线，部分字段、端口和限制已经被实现阶段调整。当前事实以根目录 README、`docs/architecture.md` 和 `docs/api.md` 为准。
 
 ## 1. 背景
 

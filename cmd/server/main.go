@@ -31,12 +31,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	// 导入项目内部包
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/handler"
-	"CoreRank/internal/repository"
-	"CoreRank/internal/rpcutil"
-	"CoreRank/internal/service"
-	redisclient "CoreRank/pkg/redis"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/handler"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/rpcutil"
+	"github.com/jingjie2002/CoreRank/internal/service"
+	redisclient "github.com/jingjie2002/CoreRank/pkg/redis"
 )
 
 const (

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package corerank.v1;
 
-option go_package = "CoreRank/api/proto;proto";
+option go_package = "github.com/jingjie2002/CoreRank/api/proto;proto";
 
 // ============================================================================
 // CoreRank 游戏匹配与排行榜服务协议定义

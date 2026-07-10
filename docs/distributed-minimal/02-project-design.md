@@ -1,4 +1,6 @@
-# CoreRank 最小分布式项目设计文档
+# CoreRank 最小分布式项目设计文档（历史设计基线）
+
+> 本文是实施前设计稿，不是当前运行契约。当前事实以根目录 README、`docs/architecture.md` 和 `docs/api.md` 为准。
 
 ## 1. 设计结论
 

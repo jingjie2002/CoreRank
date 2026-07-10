@@ -15,7 +15,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 // PlayerInfo 玩家信息

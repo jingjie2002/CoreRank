@@ -69,15 +69,15 @@ powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 
 脚本会验证：
 
-1. gateway healthz。
+1. gateway readyz 与两个 gRPC backend readiness。
 2. gateway、rank-service、match-service metrics。
 3. `compose-room-1` roomserver 自动注册和可用状态。
 4. 重复创建 ticket 返回冲突错误。
 5. queued ticket 可取消，重复取消返回冲突错误。
 6. 两个玩家创建匹配票据并匹配成功。
 7. 匹配结果包含 `ServerID` 和 `ServerAddr`。
-8. TCP roomserver 完成 `join -> ready -> room_started -> leave`。
-9. 比赛结算写入排行榜。
+8. TCP roomserver 校验 `match_id + join_token + player_id` 后完成 `join -> ready -> room_started -> leave`。
+9. 比赛结算校验完整成员集合，并验证幂等批量写榜与容量释放。
 10. TopN 和玩家排名查询。
 11. Prometheus targets 为 `up`。
 12. Grafana dashboard 可搜索。
@@ -149,7 +149,7 @@ python scripts\room_tcp_demo.py
 - roomserver 注册和 heartbeat。
 - 两个玩家创建匹配票据。
 - 匹配结果返回 `RoomID`、`ServerID` 和 `ServerAddr`。
-- 两个 TCP 客户端连接 roomserver 并完成 `join`、`ready`、`room_started`、`leave`。
+- 两个 TCP 客户端携带匹配结果中的 `join_token` 连接 roomserver，并完成 `join`、`ready`、`room_started`、`leave`。
 
 ## 9. gRPC Robot
 
@@ -221,7 +221,7 @@ $env:CORERANK_MYSQL_REQUIRED="true"
 
 ### 端口占用
 
-默认端口包括 `6379`、`7001`、`8081`、`18081`、`18082`、`19080`、`19081`、`19082`、`9090`、`3000`。如果端口被占用，需要调整 Compose 映射或对应环境变量。
+默认端口包括 `6379`、`7001`、`8081`、`18081`、`18082`、`19080`、`19081`、`19082`、`9090`、`3000`。如果宿主机 Redis 端口被占用，可设置 `CORERANK_REDIS_PORT`（例如 `6380`）；其他端口冲突需要调整 Compose 映射或对应环境变量。
 
 ### Grafana 数据为空
 

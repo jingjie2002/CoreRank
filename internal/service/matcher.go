@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 type ScoreBucket struct {

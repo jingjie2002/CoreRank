@@ -1,278 +1,111 @@
-# CoreRank 架构文档
+# CoreRank 架构
 
-本文档说明 CoreRank 当前架构、服务职责、数据流、存储分工、可观测性和未完成边界。内容以当前代码和本地验证结果为准。
-
-## 1. 系统定位
-
-CoreRank 是一个游戏匹配与排行榜服务。它位于客户端、网关、房间服、后台工具和数据存储之间，提供以下能力：
-
-- 排行榜写入、TopN 查询和玩家排名查询。
-- 匹配票据创建、查询、取消、超时和匹配结果查询。
-- 基于 Redis 的 roomserver 注册、心跳、负载记录和容量预留。
-- 最小 TCP roomserver 流程，用于验证玩家进入房间、准备、开始和离开。
-- Prometheus 指标输出和本地 Grafana dashboard。
-
-当前项目不是完整游戏服务器，不包含账号系统、反作弊、完整战斗逻辑、帧同步或生产级服务发现。
-
-## 2. 当前分布式架构
+## 组件
 
 ```mermaid
 flowchart LR
-    Client["Client / script / tool"] -->|"HTTP"| Gateway["gateway"]
-    Gateway -->|"gRPC RankService"| Rank["rank-service"]
-    Gateway -->|"gRPC MatchService"| Match["match-service"]
-
-    Room["roomserver"] -->|"HTTP register / heartbeat"| Gateway
-    Client -->|"TCP JSON-line"| Room
-
-    Rank -->|"rank ZSet"| Redis[("Redis")]
-    Match -->|"tickets / results / server registry"| Redis
-
-    Rank -. optional persist .-> MySQL[("MySQL")]
-    Match -. optional persist .-> MySQL
-
-    Gateway -->|"metrics"| Prometheus["Prometheus"]
-    Rank -->|"metrics"| Prometheus
-    Match -->|"metrics"| Prometheus
-    Prometheus --> Grafana["Grafana"]
+    C["Client"] -->|HTTP| G["gateway"]
+    G -->|gRPC + deadline| R["rank-service"]
+    G -->|gRPC + deadline| M["match-service"]
+    RS["roomserver"] -->|register / heartbeat / verify| G
+    C -->|TCP JSON-line| RS
+    R --> Redis[(Redis)]
+    M --> Redis
+    R -. optional side write .-> MySQL[(MySQL)]
+    M -. optional side write .-> MySQL
 ```
 
-## 3. 服务职责
-
-| 服务 | 入口 | 职责 |
-|---|---|---|
-| `gateway` | `cmd/gateway` | 对外 HTTP API，参数校验，错误码转换，调用内部 gRPC 服务 |
-| `rank-service` | `cmd/rank-service` | 排行榜写入、TopN 查询、玩家排名查询，暴露 RankService gRPC |
-| `match-service` | `cmd/match-service` | 匹配票据生命周期、MatchWorker、roomserver registry、房间容量预留，暴露 MatchService gRPC |
-| `roomserver` | `cmd/roomserver` | TCP JSON-line 房间服示例，启动后向 gateway 注册并发送心跳 |
-| `cmd/server` | legacy single-process | 单进程兼容入口，保留用于本地对比和简单开发 |
-| `cmd/robot` | client tool | gRPC 请求生成工具 |
-
-## 4. 目录分层
-
-| 目录 | 职责 |
+| 组件 | 职责 |
 |---|---|
-| `api/proto` | gRPC Protobuf 协议和生成代码 |
-| `cmd/gateway` | 分布式 HTTP gateway 入口 |
-| `cmd/rank-service` | 分布式排行榜服务入口 |
-| `cmd/match-service` | 分布式匹配服务入口 |
-| `cmd/roomserver` | TCP roomserver 入口 |
-| `cmd/server` | 单进程兼容入口 |
-| `internal/handler` | RESTful 和 gRPC handler |
-| `internal/service` | 排行榜、匹配生命周期、Worker 和房间资源分配 |
-| `internal/repository` | Redis、Lua 脚本、MySQL 表结构和仓库实现 |
-| `internal/roomserver` | TCP roomserver 协议和房间状态 |
-| `internal/metrics` | Prometheus 指标定义 |
-| `pkg/config` | 环境变量读取工具 |
-| `pkg/redis` | Redis 客户端初始化 |
-| `scripts` | 本地验证脚本 |
-| `docs` | API、架构、验证和运行说明 |
+| gateway | HTTP 契约、body/并发/超时保护、API key、gRPC 错误映射、readiness |
+| rank-service | 排行榜写入、分页查询、玩家排名和原子结算 |
+| match-service | MatchTicket 状态机、按模式匹配、房服注册与分配 |
+| roomserver | 最小 TCP join/ready/leave 状态，assignment token 校验 |
+| Redis | 排行榜、ticket、result、结算幂等、server registry 与 reservation 的事实源 |
+| MySQL | 可选的 Redis 后同步旁路写入和快照，不参与恢复或 Redis Lua 原子边界 |
 
-## 5. 启动流程
+两个 gRPC 服务注册标准 health service，并每 2 秒用 Redis ping 更新 serving 状态。gateway 启动时检查后端，并通过 `/readyz` 持续提供 gRPC 与 Redis 依赖就绪状态；`/healthz` 只代表 gateway 进程存活。
 
-### 5.1 gateway
-
-1. 读取 `GATEWAY_HTTP_ADDR`、`GATEWAY_METRICS_ADDR`、`RANK_GRPC_TARGET`、`MATCH_GRPC_TARGET`。
-2. 建立到 `rank-service` 和 `match-service` 的 gRPC client。
-3. 启动 HTTP API。
-4. 启动 Prometheus metrics 端点。
-5. 等待退出信号并优雅关闭。
-
-### 5.2 rank-service
-
-1. 读取 Redis、gRPC、metrics 和可选 MySQL 配置。
-2. 初始化 Redis client 和 `PlayerRepository`。
-3. 可选初始化 MySQL repository。
-4. 注册 RankService gRPC handler。
-5. 启动 metrics 端点。
-
-### 5.3 match-service
-
-1. 读取 Redis、gRPC、metrics、worker 和可选 MySQL 配置。
-2. 初始化 Redis client、`PlayerRepository` 和 `RoomServerRepository`。
-3. 初始化 `MatchService`，并启用 Redis-backed room allocator。
-4. 启动 `MatchWorker`。
-5. 注册 MatchService gRPC handler。
-6. 启动 metrics 端点。
-
-### 5.4 roomserver
-
-1. 读取 `ROOM_SERVER_ID`、`ROOM_SERVER_ADDR`、`ROOM_SERVER_PUBLIC_ADDR`、`CORE_RANK_HTTP`、`MATCH_MODE`、`CAPACITY`。
-2. 向 gateway 注册自身 server 信息。
-3. 周期性发送 heartbeat。
-4. 监听 TCP JSON-line 请求。
-5. 在本进程内维护最小房间状态。
-
-## 6. 排行榜链路
+## MatchTicket 状态机
 
 ```mermaid
-sequenceDiagram
-    participant C as Client
-    participant G as gateway
-    participant R as rank-service
-    participant Redis as Redis
-    participant M as MySQL optional
-
-    C->>G: POST /api/rank/score
-    G->>R: gRPC UpdateScore
-    R->>Redis: ZADD rank key
-    R-->>M: optional upsert
-    R-->>G: UpdateScoreResponse
-    G-->>C: JSON result
-
-    C->>G: GET /api/rank/top
-    G->>R: gRPC GetTopRank
-    R->>Redis: ZREVRANGE
-    R-->>G: rank entries
-    G-->>C: JSON result
+stateDiagram-v2
+    [*] --> queued
+    queued --> matched
+    queued --> cancelled
+    queued --> timeout
+    matched --> [*]
+    cancelled --> [*]
+    timeout --> [*]
 ```
 
-## 7. 匹配链路
+创建、取消、完成和超时都使用 Lua。完成脚本会一次校验全部 player-ticket 映射、ticket 状态和 `match_mode`，然后提交 ticket 终态与 MatchResult，避免 read + pipeline 的 check-then-act 竞态。
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant G as gateway
-    participant M as match-service
-    participant Redis as Redis
-    participant W as MatchWorker
+## 按模式匹配
 
-    C->>G: POST /api/match/tickets
-    G->>M: gRPC CreateMatchTicket
-    M->>Redis: SETNX player ticket / HSET ticket / ZADD pool
-    M-->>G: ticket
-    G-->>C: JSON ticket
+队列 key 为 `{match:ticket_pool:<mode>}`，`{match:ticket_modes}` 记录当前非空模式。MatchWorker 逐模式维护独立的分数桶和滑动窗口；一个模式的空匹配次数不会扩大另一个模式的搜索范围。
 
-    W->>M: TryCompleteMatch
-    M->>Redis: Lua pick players
-    M->>Redis: Lua reserve roomserver capacity
-    M->>Redis: HSET match result / room assignment
-```
+匹配流程：
 
-当没有可用 roomserver 时，已摘取玩家会重新放回匹配池，不会静默丢失。
+1. 创建 ticket 并加入对应模式的 ZSet。
+2. 请求链路或 Worker 原子摘取同模式、相近 MMR 的两个玩家。
+3. allocator 在 Redis 中原子预留 roomserver 槽位。
+4. 完成脚本再次校验 ticket 状态与模式，写入 MatchResult 和 `join_token`。
+5. 保存 `room:assignment:{match_id}`，供结算释放资源。
+6. 任何完成失败都会释放已分配槽位并把仍可用的 ticket 重新排队。
 
-## 8. RoomServer 注册和分配
+## 房服负载模型
 
-```mermaid
-sequenceDiagram
-    participant R as roomserver
-    participant G as gateway
-    participant M as match-service
-    participant Redis as Redis
+`GameServer` 有两个不同语义的负载：
 
-    R->>G: POST /api/servers
-    G->>M: gRPC RegisterGameServer
-    M->>Redis: HSET server:info
-    M->>Redis: ZADD server:heartbeat
-    M->>Redis: ZADD server:load
+- `current_load`：allocator 的 reserved slots。
+- `observed_load`：roomserver 心跳实报的连接玩家数。
 
-    loop heartbeat
-        R->>G: POST /api/servers/{id}/heartbeat
-        G->>M: gRPC HeartbeatGameServer
-        M->>Redis: update heartbeat/load
-    end
-```
+分配 Lua 只修改 reservation；heartbeat 只修改 observed load 和存活时间。重复注册会保留 reservation。结算 Lua 只在 assignment 仍为 `assigned` 时释放一次，因此幂等重放不会重复扣减。
 
-匹配完成后，结果中会包含：
+assignment Hash 保留 24 小时，同时写入独立的 2 小时 reservation lease 索引。MatchWorker 每 10 秒扫描到期 lease，并通过幂等释放脚本恢复容量；正常结算和失败释放会移除索引。当前 join 不延长 lease，因此超过 2 小时的超长对局不属于本地 v1 的保证范围。
 
-- `RoomID`：逻辑房间 ID。
-- `ServerID`：分配到的 roomserver ID。
-- `ServerAddr`：客户端可连接的 TCP 地址。
+## 原子结算
 
-## 9. Redis 数据结构
+RankService 在进入 Lua 前验证：
+
+- match 存在且状态为 `matched`；
+- scores 数量与参赛者集合完全一致；
+- 没有重复、缺失或 outsider；
+- 榜单、玩家 ID 和整数分数符合边界。
+
+结算 payload 按玩家 ID 排序后计算 SHA-256 指纹。Lua 原子完成榜单批量 ZADD、指纹/结算状态写入、MatchResult 标记和 room reservation 释放。同一指纹重放返回 idempotent；不同指纹冲突且不改数据。
+
+## RoomServer join
+
+客户端从 MatchResult 得到 `match_id`、`room_id`、`server_id`、`server_addr` 和 `join_token`。roomserver 收到 join 后向 gateway 查询结果并验证五项信息与玩家成员资格。错误 token 或 outsider 不能创建房间状态。
+
+TCP 入口还有 64 KiB 消息上限、30 秒空闲超时、默认 1024 连接上限和断连清理。它仍是最小房间原型，不实现战斗帧同步、重连或跨进程房间迁移。
+
+## Redis key
 
 | Key | 类型 | 说明 |
 |---|---|---|
-| `{rank:global}` | ZSet | 全局排行榜 |
-| `{rank:<leaderboard_type>}` | ZSet | 赛季榜、活动榜或其他排行榜维度 |
-| `{match:pool}` | ZSet | 早期调试匹配池 |
-| `{match:ticket_pool}` | ZSet | 匹配票据玩家池 |
-| `{match:ticket_expiry}` | ZSet | 票据超时扫描索引 |
-| `match:ticket:{ticket_id}` | Hash | 匹配票据状态 |
-| `match:result:{match_id}` | Hash | 匹配结果 |
-| `match:player_ticket:{player_id}` | String | 防止同一玩家重复 queued |
-| `server:info:{server_id}` | Hash | 房间服/战斗服资源元数据 |
-| `server:heartbeat` | ZSet | server 心跳时间索引 |
-| `server:load:{match_mode}` | ZSet | 按匹配模式记录 server 负载 |
-| `room:assignment:{match_id}` | Hash | 匹配结果到 server 的分配记录 |
+| `{rank:global}` / `{rank:<type>}` | ZSet | 排行榜 |
+| `{match:ticket_pool:<mode>}` | ZSet | 按模式隔离的 ticket 玩家队列 |
+| `{match:ticket_modes}` | Set | 当前非空模式 |
+| `{match:ticket_expiry}` | ZSet | 超时索引 |
+| `match:ticket:{ticket_id}` | Hash | ticket 状态 |
+| `match:player_ticket:{player_id}` | String | 玩家当前 queued ticket |
+| `match:result:{match_id}` | Hash | 匹配结果与 join token |
+| `match:settlement:{match_id}` | Hash | 结算指纹与状态 |
+| `server:info:{server_id}` | Hash | 容量、reserved/observed load、心跳 |
+| `server:load:{mode}` | ZSet | 按 reserved ratio 排序的 server |
+| `room:assignment:{match_id}` | Hash | match 到房服的 reservation |
 
-## 10. MySQL 持久化
+## 故障与一致性边界
 
-MySQL 是可选持久化层。默认策略是 Redis 主链路优先，MySQL 写入失败时记录 warning 并继续返回 Redis 结果。
+- Redis 是单实例本地事实源；启动时 ping 失败会 fail fast，没有 Cluster 或自动故障转移。
+- MySQL 写失败不会回滚 Redis；没有 outbox、补偿队列或自动对账。
+- 结算 Lua、ticket Lua 和 reservation Lua 各自定义清晰的原子边界，不等于跨服务分布式事务。
+- 内部 gRPC 在本机/Compose 私有网络使用明文连接；外网部署需要 TLS/mTLS 和正式服务身份。
+- API key 是本地共享环境的轻量保护，不是账号权限系统。
 
-| 表 | 说明 |
-|---|---|
-| `players` | 玩家分数持久化 |
-| `match_tickets` | 匹配票据持久化 |
-| `match_results` | 匹配结果持久化 |
-| `rank_snapshots` | 榜单快照 |
+## 部署边界
 
-如果需要启动时强制 MySQL 可用：
-
-```powershell
-$env:CORERANK_MYSQL_REQUIRED="true"
-```
-
-## 11. 可观测性
-
-当前分布式栈暴露三个 metrics 端点：
-
-| 服务 | Metrics |
-|---|---|
-| `gateway` | `http://127.0.0.1:19080/metrics` |
-| `rank-service` | `http://127.0.0.1:19081/metrics` |
-| `match-service` | `http://127.0.0.1:19082/metrics` |
-
-Prometheus targets：
-
-- `corerank-gateway`
-- `corerank-rank-service`
-- `corerank-match-service`
-
-主要指标覆盖：
-
-- gRPC 请求数量和耗时。
-- 匹配成功、取消、超时数量。
-- 匹配票据事件和生命周期耗时。
-- queued 票据数量。
-- 房间资源分配成功/失败数量。
-- roomserver 当前预留玩家槽位数。
-
-## 12. 部署形态
-
-### 本地分布式 Compose
-
-当前已验证：
-
-```powershell
-docker compose build corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver
-docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
-powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
-```
-
-### 单进程兼容模式
-
-`cmd/server` 仍可启动单进程形态，适合简单调试和对比：
-
-```powershell
-docker compose up -d corerank-redis
-go run ./cmd/server
-```
-
-## 13. 当前未实现边界
-
-- WebSocket 房间服。
-- 完整战斗服进程。
-- 匹配结果主动通知。
-- JWT / 账号鉴权。
-- Redis Cluster。
-- 多实例高可用。
-- Kubernetes 配置。
-- 生产级 P95/P99 或吞吐承诺。
-
-## 14. 后续演进建议
-
-1. 补充 Linux 容器环境下的持续运行验证。
-2. 完善 HTTP handler 单元测试和 gateway 错误码回归。
-3. 如继续扩展房间能力，可在当前 TCP roomserver 上补鉴权、断线重连和完整战斗状态同步。
-4. 再评估 Redis Cluster、多实例部署、服务发现和 Kubernetes 配置。
+推荐形态是 Docker Compose 的 gateway/rank/match/roomserver 四进程栈。`cmd/server` 只保留 legacy 对照。项目不声称生产级高可用、Kubernetes、服务发现、完整战斗服或生产 P99/TPS。

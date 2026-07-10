@@ -68,6 +68,8 @@ MySQL 测试覆盖：
 - 匹配结果落库和查询。
 - 榜单快照写入。
 - Service 层在 MySQL 写入失败时继续返回 Redis 主链路结果。
+- 并发 heartbeat/重复注册不会覆盖 allocator reservation，assignment lease 到期只释放一次。
+- 结算拒绝 outsider/重复玩家，完全相同的重放幂等，不同 payload 重放冲突。
 
 ## 3. 分布式 Compose 验证
 
@@ -110,14 +112,14 @@ powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 
 验证链路：
 
-- `GET /healthz`
+- `GET /readyz`（会检查 rank-service 和 match-service）
 - gateway、rank-service、match-service metrics
 - `GET /api/servers?match_mode=duel`
 - `POST /api/match/tickets`
 - `DELETE /api/match/tickets/{ticket_id}`
 - `GET /api/match/tickets/{ticket_id}`
 - `GET /api/match/results/{match_id}`
-- TCP roomserver `join`
+- TCP roomserver 使用 `match_id + join_token` 完成授权 `join`
 - TCP roomserver `ready`
 - TCP roomserver `room_started`
 - TCP roomserver `leave`
@@ -151,7 +153,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\distributed_soak.ps1
 默认通过标准：
 
 - 初始稳定性前置检查没有低内存或低磁盘警告。
-- gateway `/healthz` 持续可达。
+- gateway `/readyz` 持续可达。
 - Prometheus `/-/ready` 持续可达。
 - Grafana `/api/health` 持续可达。
 - Prometheus 中三个 CoreRank targets 持续存在且为 `up`。
@@ -204,7 +206,7 @@ python scripts\room_tcp_demo.py
 - roomserver 能注册到 `/api/servers` 并发送 heartbeat。
 - 两个玩家能通过 `POST /api/match/tickets` 匹配成功。
 - 匹配结果包含 `RoomID`、`ServerID` 和 `ServerAddr`。
-- TCP 客户端能连接 `ServerAddr`，完成 `join -> ready -> room_started -> leave`。
+- TCP 客户端能连接 `server_addr`，使用匹配结果中的 `join_token` 完成 `join -> ready -> room_started -> leave`。
 
 相关单元测试：
 

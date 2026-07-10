@@ -14,10 +14,10 @@ import (
 	"errors"
 	"time"
 
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/metrics"
-	"CoreRank/internal/repository"
-	"CoreRank/internal/service"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/metrics"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/service"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

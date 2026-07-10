@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/repository"
-	"CoreRank/internal/service"
-	"CoreRank/internal/testutil"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/service"
+	"github.com/jingjie2002/CoreRank/internal/testutil"
 
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"

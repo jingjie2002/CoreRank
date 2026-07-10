@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"CoreRank/internal/roomserver"
+	"github.com/jingjie2002/CoreRank/internal/roomserver"
 )
 
 const (

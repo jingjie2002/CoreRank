@@ -111,11 +111,11 @@ def main():
         })
         print(json.dumps(second_ticket, ensure_ascii=False, indent=2))
 
-        print(f">>> GET /api/match/tickets/{first_ticket['TicketID']}")
-        refreshed_first = request("GET", f"/api/match/tickets/{first_ticket['TicketID']}")
+        print(f">>> GET /api/match/tickets/{first_ticket['ticket_id']}")
+        refreshed_first = request("GET", f"/api/match/tickets/{first_ticket['ticket_id']}")
         print(json.dumps(refreshed_first, ensure_ascii=False, indent=2))
 
-        match_id = second_ticket.get("MatchID")
+        match_id = second_ticket.get("match_id")
         if match_id:
             print(f">>> GET /api/match/results/{match_id}")
             print(json.dumps(request("GET", f"/api/match/results/{match_id}"), ensure_ascii=False, indent=2))
@@ -125,13 +125,13 @@ def main():
             "player_id": "p_timeout",
             "mmr_score": 4800,
             "match_mode": "duel",
-            "max_wait_ms": 50,
+            "max_wait_ms": 1000,
         })
         print(json.dumps(timeout_ticket, ensure_ascii=False, indent=2))
 
-        time.sleep(0.3)
-        print(f">>> GET /api/match/tickets/{timeout_ticket['TicketID']}")
-        print(json.dumps(request("GET", f"/api/match/tickets/{timeout_ticket['TicketID']}"), ensure_ascii=False, indent=2))
+        time.sleep(1.2)
+        print(f">>> GET /api/match/tickets/{timeout_ticket['ticket_id']}")
+        print(json.dumps(request("GET", f"/api/match/tickets/{timeout_ticket['ticket_id']}"), ensure_ascii=False, indent=2))
 
         metrics_body = request_text(METRICS_URL)
         expected_metrics = [

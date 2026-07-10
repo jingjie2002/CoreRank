@@ -1,153 +1,56 @@
-# CoreRank 本地观测栈
+# CoreRank 本地可观测性
 
-本文档说明如何在本机使用 Docker Compose 启动 Redis、MySQL、Prometheus 和 Grafana，并用 CoreRank `/metrics` 观察 gRPC 和匹配业务指标。
+当前 Prometheus 抓取三个分布式进程，而不是旧单进程 `corerank-server:9091`：
 
-## 1. 组成
+| job | 地址 |
+|---|---|
+| `corerank-gateway` | `corerank-gateway:19080/metrics` |
+| `corerank-rank-service` | `corerank-rank-service:19081/metrics` |
+| `corerank-match-service` | `corerank-match-service:19082/metrics` |
 
-| 服务 | 默认地址 | 说明 |
-|---|---|---|
-| Redis | `127.0.0.1:6379` | 排行榜和匹配热数据 |
-| MySQL | `127.0.0.1:3307` | 可选持久化层，避免占用本机已有 `3306` |
-| Prometheus | `http://localhost:9090` | 抓取 CoreRank `/metrics` |
-| Grafana | `http://localhost:3000` | 展示 CoreRank dashboard |
-| CoreRank metrics | `http://localhost:9091/metrics` | 服务端指标端点 |
+本机端口都通过 Docker Compose 绑定到 `127.0.0.1`。Prometheus 为 `http://127.0.0.1:9090`，Grafana 为 `http://127.0.0.1:3000`。管理员密码通过 `.env` 的 `GF_SECURITY_ADMIN_PASSWORD` 配置，匿名访问默认关闭。
 
-Grafana 默认账号密码：
-
-```text
-admin / admin
-```
-
-这是本地开发配置，不应作为生产密码使用。
-
-## 2. 启动依赖
-
-先确认 Docker Desktop 已启动。如果 Docker Desktop Service 处于 stopped 状态，`docker compose up` 会无法连接 `docker_engine`。
+## 启动与验收
 
 ```powershell
-docker compose up -d corerank-redis corerank-mysql prometheus grafana
+docker compose up -d corerank-redis corerank-rank-service corerank-match-service corerank-gateway corerank-roomserver prometheus grafana
+powershell -ExecutionPolicy Bypass -File scripts\distributed_smoke.ps1
 ```
 
-查看容器状态：
+smoke 会检查 gateway `/readyz`、三个 metrics 端点、Prometheus targets 和 Grafana dashboard provisioning。
 
-```powershell
-docker compose ps
-```
+## 关键指标
 
-## 3. 启动 CoreRank
+| 指标 | 含义 |
+|---|---|
+| `corerank_grpc_requests_total` | gRPC 请求数，按方法和状态分类 |
+| `corerank_grpc_request_latency_seconds` | gRPC 延迟直方图 |
+| `corerank_matcher_ticket_events_total` | ticket 生命周期事件 |
+| `corerank_matcher_lifecycle_duration_seconds` | ticket 到终态的时长 |
+| `corerank_matcher_queued_tickets` | 按 match mode 隔离的排队数 |
+| `corerank_room_assignment_total` | 房服分配结果 |
+| `corerank_room_assignment_failures_total` | 房服分配失败原因 |
+| `corerank_room_server_load` | 分配器持有的预留玩家槽位 |
 
-如果只验证 Redis 热路径：
-
-```powershell
-go run ./cmd/server
-```
-
-如果要启用 Docker Compose 中的 MySQL：
-
-```powershell
-$env:CORERANK_MYSQL_DSN="corerank:corerank_demo@tcp(127.0.0.1:3307)/corerank?parseTime=true&charset=utf8mb4&loc=Local"
-go run ./cmd/server
-```
-
-如果希望服务启动时强制要求 MySQL 可用：
-
-```powershell
-$env:CORERANK_MYSQL_REQUIRED="true"
-```
-
-## 4. 产生指标数据
-
-RESTful 演示：
-
-```powershell
-python scripts\rest_demo.py
-```
-
-Robot 压测：
-
-```powershell
-go run ./cmd/robot
-```
-
-## 5. 打开 Grafana
-
-浏览器访问：
-
-```text
-http://localhost:3000
-```
-
-进入：
-
-```text
-Dashboards -> CoreRank -> CoreRank Overview
-```
-
-当前 dashboard 包含：
-
-- gRPC 请求速率。
-- gRPC P95/P99 延迟。
-- 匹配票据事件。
-- queued 票据数量。
-- 匹配生命周期 P95/P99。
-
-本地已验证：
-
-- Grafana datasource provisioning 能自动创建 `Prometheus` 数据源。
-- Grafana dashboard provisioning 能自动创建 `CoreRank Overview` dashboard。
-- Prometheus `corerank-server` target 能抓取 `host.docker.internal:9091/metrics`，状态为 `up`。
-
-## 6. PromQL 查询
-
-gRPC 请求速率：
+示例 PromQL：
 
 ```promql
-sum by (method, status) (rate(corerank_grpc_requests_total[1m]))
+sum by (method, status) (rate(corerank_grpc_requests_total[5m]))
 ```
-
-gRPC P95 延迟：
 
 ```promql
-histogram_quantile(0.95, sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
+histogram_quantile(0.95,
+  sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
 ```
-
-gRPC P99 延迟：
 
 ```promql
-histogram_quantile(0.99, sum by (le, method) (rate(corerank_grpc_request_latency_seconds_bucket[5m])))
+sum by (match_mode, status) (increase(corerank_matcher_ticket_events_total[5m]))
 ```
-
-短窗口本机演示时，建议先发送 1 次预热 gRPC 请求，等待 Prometheus 抓取一次初始样本，再运行 Robot 压测。否则 histogram label 第一次出现时可能已经带着完整请求数，`rate()` 在短窗口内会得到 0 或 `NaN`。
-
-匹配票据事件：
-
-```promql
-sum by (status) (increase(corerank_matcher_ticket_events_total[5m]))
-```
-
-匹配生命周期 P95：
-
-```promql
-histogram_quantile(0.95, sum by (le, status) (rate(corerank_matcher_lifecycle_duration_seconds_bucket[5m])))
-```
-
-当前 queued 票据数量：
 
 ```promql
 corerank_matcher_queued_tickets
 ```
 
-## 7. 关闭
+## 边界
 
-```powershell
-docker compose down
-```
-
-如果要清理本地容器数据，请先确认不再需要 `data/` 下的 Redis、MySQL、Prometheus、Grafana 数据。该目录已被 `.gitignore` 忽略。
-
-## 8. 边界
-
-- 这套观测栈用于本地开发、调试和验证。
-- 当前没有验证 Linux 云服务器部署。
-- 当前没有生产级告警规则。
-- P95/P99 必须来自本地 Prometheus 查询结果，不能直接写成生产承诺。
+该栈只提供本地指标和 dashboard，没有生产告警、分布式追踪、集中日志、长期保留或 SLO。P95/P99 必须引用具体一次测试的环境、时间窗和查询结果，不能写成生产性能承诺。

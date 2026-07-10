@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	pb "CoreRank/api/proto"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

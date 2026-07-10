@@ -4,10 +4,45 @@ param(
     [string]$GrafanaUrl = "http://127.0.0.1:3000",
     [string]$MatchMode = "duel",
     [string]$LeaderboardPrefix = "compose",
-    [string]$RoomServerID = "compose-room-1"
+    [string]$RoomServerID = "compose-room-1",
+    [string]$ApiKey = $env:CORERANK_API_KEY,
+    [string]$GrafanaUser = $env:GF_SECURITY_ADMIN_USER,
+    [string]$GrafanaPassword = $env:GF_SECURITY_ADMIN_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
+$envFile = Join-Path (Split-Path -Parent $PSScriptRoot) ".env"
+
+function Get-DotEnvValue {
+    param([string]$Name)
+
+    if (-not (Test-Path -LiteralPath $envFile)) {
+        return ""
+    }
+
+    $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match "^$([regex]::Escape($Name))=" } | Select-Object -First 1
+    if ($null -eq $line) {
+        return ""
+    }
+
+    return ($line -split '=', 2)[1].Trim()
+}
+
+if ([string]::IsNullOrWhiteSpace($ApiKey)) {
+    $ApiKey = Get-DotEnvValue "CORERANK_API_KEY"
+}
+if ([string]::IsNullOrWhiteSpace($GrafanaUser)) {
+    $GrafanaUser = Get-DotEnvValue "GF_SECURITY_ADMIN_USER"
+}
+if ([string]::IsNullOrWhiteSpace($GrafanaUser)) {
+    $GrafanaUser = "admin"
+}
+if ([string]::IsNullOrWhiteSpace($GrafanaPassword)) {
+    $GrafanaPassword = Get-DotEnvValue "GF_SECURITY_ADMIN_PASSWORD"
+}
+if ([string]::IsNullOrWhiteSpace($GrafanaPassword)) {
+    $GrafanaPassword = "admin"
+}
 
 function Wait-Http {
     param([string]$Url)
@@ -36,6 +71,9 @@ function Invoke-Json {
         Uri = $Url
         TimeoutSec = 10
     }
+	if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
+		$params.Headers = @{ "X-CoreRank-API-Key" = $ApiKey }
+	}
 
     if ($null -ne $Body) {
         $params.ContentType = "application/json"
@@ -43,6 +81,13 @@ function Invoke-Json {
     }
 
     return Invoke-RestMethod @params
+}
+
+function Invoke-GrafanaJson {
+    param([string]$Url)
+
+    $credential = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${GrafanaUser}:${GrafanaPassword}"))
+    return Invoke-RestMethod -Method GET -Uri $Url -Headers @{ Authorization = "Basic $credential" } -TimeoutSec 10
 }
 
 function Expect-HttpError {
@@ -60,6 +105,9 @@ function Expect-HttpError {
         TimeoutSec = 10
         UseBasicParsing = $true
     }
+	if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
+		$params.Headers = @{ "X-CoreRank-API-Key" = $ApiKey }
+	}
 
     if ($null -ne $Body) {
         $params.ContentType = "application/json"
@@ -253,7 +301,7 @@ function Expect-RoomResponse {
     return $response
 }
 
-Wait-Http "$BaseUrl/healthz"
+Wait-Http "$BaseUrl/readyz"
 Wait-Http "$PrometheusUrl/-/ready"
 Wait-Http "$GrafanaUrl/api/health"
 Wait-Http "http://127.0.0.1:19080/metrics"
@@ -275,7 +323,7 @@ $registeredServerAddr = Get-JsonValue $roomServer "addr" "Addr"
 
 $cancelTicket = Invoke-Json "POST" "$BaseUrl/api/match/tickets" @{
     player_id = $cancelPlayer
-    mmr_score = 700000 + $numericSuffix
+    mmr_score = 7000 + ($numericSuffix % 100)
     match_mode = $MatchMode
     max_wait_ms = 60000
 }
@@ -294,7 +342,7 @@ $cancelRepeatError = Expect-HttpError "DELETE" "$BaseUrl/api/match/tickets/$canc
 
 $duplicateTicket = Invoke-Json "POST" "$BaseUrl/api/match/tickets" @{
     player_id = $duplicatePlayer
-    mmr_score = 800000 + $numericSuffix
+    mmr_score = 8000 + ($numericSuffix % 100)
     match_mode = $MatchMode
     max_wait_ms = 60000
 }
@@ -305,7 +353,7 @@ if ([string]::IsNullOrWhiteSpace($duplicateTicketID) -or $duplicateTicketStatus 
 }
 $duplicateRepeatError = Expect-HttpError "POST" "$BaseUrl/api/match/tickets" 409 @{
     player_id = $duplicatePlayer
-    mmr_score = 800000 + $numericSuffix
+    mmr_score = 8000 + ($numericSuffix % 100)
     match_mode = $MatchMode
     max_wait_ms = 60000
 }
@@ -330,28 +378,28 @@ $ticket2 = Invoke-Json "POST" "$BaseUrl/api/match/tickets" @{
 }
 
 $matchedTicket = $ticket2
-if ([string]::IsNullOrWhiteSpace($matchedTicket.MatchID)) {
+if ([string]::IsNullOrWhiteSpace($matchedTicket.match_id)) {
     for ($i = 0; $i -lt 30; $i++) {
         Start-Sleep -Milliseconds 300
-        $matchedTicket = Invoke-Json "GET" "$BaseUrl/api/match/tickets/$($ticket2.TicketID)"
-        if (-not [string]::IsNullOrWhiteSpace($matchedTicket.MatchID)) {
+        $matchedTicket = Invoke-Json "GET" "$BaseUrl/api/match/tickets/$($ticket2.ticket_id)"
+        if (-not [string]::IsNullOrWhiteSpace($matchedTicket.match_id)) {
             break
         }
     }
 }
-if ([string]::IsNullOrWhiteSpace($matchedTicket.MatchID)) {
+if ([string]::IsNullOrWhiteSpace($matchedTicket.match_id)) {
     throw "Ticket did not match: $($matchedTicket | ConvertTo-Json -Compress)"
 }
-if ([string]::IsNullOrWhiteSpace($matchedTicket.RoomID)) {
+if ([string]::IsNullOrWhiteSpace($matchedTicket.room_id)) {
     throw "Matched ticket has no room id: $($matchedTicket | ConvertTo-Json -Compress)"
 }
 
-$ticketRead = Invoke-Json "GET" "$BaseUrl/api/match/tickets/$($ticket1.TicketID)"
-$result = Invoke-Json "GET" "$BaseUrl/api/match/results/$($matchedTicket.MatchID)"
-if ($result.Status -ne "matched") {
+$ticketRead = Invoke-Json "GET" "$BaseUrl/api/match/tickets/$($ticket1.ticket_id)"
+$result = Invoke-Json "GET" "$BaseUrl/api/match/results/$($matchedTicket.match_id)"
+if ($result.status -ne "matched") {
     throw "Unexpected match status: $($result | ConvertTo-Json -Compress)"
 }
-if (@($result.PlayerIDs).Count -ne 2) {
+if (@($result.player_ids).Count -ne 2) {
     throw "Unexpected player ids: $($result | ConvertTo-Json -Compress)"
 }
 $resultServerID = Get-JsonValue $result "ServerID" "server_id"
@@ -369,24 +417,24 @@ if ($resultServerAddr -ne $registeredServerAddr) {
 $roomClient = $null
 try {
     $roomClient = New-RoomTcpClient $resultServerAddr
-    Send-RoomRequest $roomClient @{ type = "join"; room_id = $matchedTicket.RoomID; player_id = $player1 }
-    Expect-RoomResponse $roomClient "joined" $matchedTicket.RoomID $player1 | Out-Null
+    Send-RoomRequest $roomClient @{ type = "join"; match_id = $matchedTicket.match_id; room_id = $matchedTicket.room_id; player_id = $player1; join_token = $result.join_token }
+    Expect-RoomResponse $roomClient "joined" $matchedTicket.room_id $player1 | Out-Null
 
-    Send-RoomRequest $roomClient @{ type = "join"; room_id = $matchedTicket.RoomID; player_id = $player2 }
-    Expect-RoomResponse $roomClient "joined" $matchedTicket.RoomID $player2 | Out-Null
+    Send-RoomRequest $roomClient @{ type = "join"; match_id = $matchedTicket.match_id; room_id = $matchedTicket.room_id; player_id = $player2; join_token = $result.join_token }
+    Expect-RoomResponse $roomClient "joined" $matchedTicket.room_id $player2 | Out-Null
 
-    Send-RoomRequest $roomClient @{ type = "ready"; room_id = $matchedTicket.RoomID; player_id = $player1 }
-    Expect-RoomResponse $roomClient "ready" $matchedTicket.RoomID $player1 | Out-Null
+    Send-RoomRequest $roomClient @{ type = "ready"; room_id = $matchedTicket.room_id; player_id = $player1 }
+    Expect-RoomResponse $roomClient "ready" $matchedTicket.room_id $player1 | Out-Null
 
-    Send-RoomRequest $roomClient @{ type = "ready"; room_id = $matchedTicket.RoomID; player_id = $player2 }
-    Expect-RoomResponse $roomClient "ready" $matchedTicket.RoomID $player2 | Out-Null
-    Expect-RoomResponse $roomClient "room_started" $matchedTicket.RoomID | Out-Null
+    Send-RoomRequest $roomClient @{ type = "ready"; room_id = $matchedTicket.room_id; player_id = $player2 }
+    Expect-RoomResponse $roomClient "ready" $matchedTicket.room_id $player2 | Out-Null
+    Expect-RoomResponse $roomClient "room_started" $matchedTicket.room_id | Out-Null
 
-    Send-RoomRequest $roomClient @{ type = "leave"; room_id = $matchedTicket.RoomID; player_id = $player1 }
-    Expect-RoomResponse $roomClient "left" $matchedTicket.RoomID $player1 | Out-Null
+    Send-RoomRequest $roomClient @{ type = "leave"; room_id = $matchedTicket.room_id; player_id = $player1 }
+    Expect-RoomResponse $roomClient "left" $matchedTicket.room_id $player1 | Out-Null
 
-    Send-RoomRequest $roomClient @{ type = "leave"; room_id = $matchedTicket.RoomID; player_id = $player2 }
-    Expect-RoomResponse $roomClient "left" $matchedTicket.RoomID $player2 | Out-Null
+    Send-RoomRequest $roomClient @{ type = "leave"; room_id = $matchedTicket.room_id; player_id = $player2 }
+    Expect-RoomResponse $roomClient "left" $matchedTicket.room_id $player2 | Out-Null
 } finally {
     if ($null -ne $roomClient) {
         $roomClient.Reader.Dispose()
@@ -395,7 +443,7 @@ try {
     }
 }
 
-$settle = Invoke-Json "POST" "$BaseUrl/api/matches/$($matchedTicket.MatchID)/settle" @{
+$settle = Invoke-Json "POST" "$BaseUrl/api/matches/$($matchedTicket.match_id)/settle" @{
     leaderboard_type = $leaderboard
     scores = @(
         @{ player_id = $player1; score = 1600 },
@@ -411,14 +459,14 @@ $top = Invoke-Json "GET" $topUrl
 if (@($top).Count -ne 2) {
     throw "Top rank did not return two players: $($top | ConvertTo-Json -Compress)"
 }
-if ($top[0].PlayerID -ne $player1 -or $top[0].Rank -ne 1) {
+if ($top[0].player_id -ne $player1 -or $top[0].rank -ne 1) {
     throw "Unexpected top rank order: $($top | ConvertTo-Json -Compress)"
 }
 
 $playerIDQuery = [uri]::EscapeDataString($player1)
 $playerUrl = "{0}/api/rank/player/{1}?leaderboard_type={2}" -f $BaseUrl, $playerIDQuery, $leaderboardQuery
 $player = Invoke-Json "GET" $playerUrl
-if ($player.PlayerID -ne $player1 -or $player.Rank -ne 1) {
+if ($player.player_id -ne $player1 -or $player.rank -ne 1) {
     throw "Unexpected player rank: $($player | ConvertTo-Json -Compress)"
 }
 
@@ -440,8 +488,8 @@ if (@($targetSummary | Where-Object { $_.health -ne "up" }).Count -gt 0) {
     throw "Prometheus target not up: $($targetSummary | ConvertTo-Json -Compress)"
 }
 
-$grafanaHealth = Invoke-Json "GET" "$GrafanaUrl/api/health"
-$grafanaSearch = Invoke-Json "GET" "$GrafanaUrl/api/search?query=CoreRank"
+$grafanaHealth = Invoke-GrafanaJson "$GrafanaUrl/api/health"
+$grafanaSearch = Invoke-GrafanaJson "$GrafanaUrl/api/search?query=CoreRank"
 if (@($grafanaSearch | Where-Object { $_.uid -eq "corerank-overview" }).Count -lt 1) {
     throw "Grafana dashboard corerank-overview was not found"
 }
@@ -463,19 +511,19 @@ if (@($grafanaSearch | Where-Object { $_.uid -eq "corerank-overview" }).Count -l
     duplicate_ticket_id = $duplicateTicketID
     duplicate_ticket_status = $duplicateCancelledStatus
     duplicate_repeat_status_code = $duplicateRepeatError.StatusCode
-    ticket1_id = $ticket1.TicketID
-    ticket1_status = $ticketRead.Status
-    ticket2_id = $ticket2.TicketID
-    ticket2_status = $matchedTicket.Status
-    match_id = $matchedTicket.MatchID
-    room_id = $matchedTicket.RoomID
+    ticket1_id = $ticket1.ticket_id
+    ticket1_status = $ticketRead.status
+    ticket2_id = $ticket2.ticket_id
+    ticket2_status = $matchedTicket.status
+    match_id = $matchedTicket.match_id
+    room_id = $matchedTicket.room_id
     match_server_id = $resultServerID
     match_server_addr = $resultServerAddr
     room_tcp = "join-ready-started-left"
-    match_status = $result.Status
+    match_status = $result.status
     leaderboard_type = $leaderboard
-    top_first_player = $top[0].PlayerID
-    top_first_rank = $top[0].Rank
-    player_rank = $player.Rank
+    top_first_player = $top[0].player_id
+    top_first_rank = $top[0].rank
+    player_rank = $player.rank
     prometheus_targets = $targetSummary
 } | ConvertTo-Json -Depth 8

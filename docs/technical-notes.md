@@ -22,7 +22,7 @@ CoreRank 是一个 Go 游戏服务端中间件项目，聚焦匹配池和实时�
 - RESTful API 是在 gRPC 服务之外补的网关层，两者复用同一套 Service 和 Repository。
 - MySQL 作为可选持久化层沉淀玩家分数、匹配票据、匹配结果和榜单快照；Redis 仍承载高频热路径。
 - MySQL 故障时默认降级到 Redis 主链路，避免可选持久化层中断核心匹配/排行榜请求。
-- `cmd/roomserver` 是最小 TCP 房间服 v1：启动后注册到 CoreRank，匹配成功后玩家可以按 `ServerAddr` 连接并完成 `join` / `ready` / `leave`。
+- `cmd/roomserver` 是最小 TCP 房间服 v1：启动后注册到 CoreRank，玩家按 `server_addr` 连接，并通过 `match_id + join_token + player_id` 校验后完成 `join` / `ready` / `leave`。
 - Robot 支持本机 gRPC 压测，当前压测记录写在 `docs/benchmark.md`，引用时必须带上本机环境和参数。
 - 本地 Docker 观测栈已经能展示 Prometheus 抓取和 Grafana `CoreRank Overview` dashboard；P95/P99 是本机短窗口观测值，不是生产承诺。
 

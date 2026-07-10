@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/repository"
 )
 
 type RoomAllocationRequest struct {

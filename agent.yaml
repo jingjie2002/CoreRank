@@ -1,15 +1,17 @@
 id: corerank
 name: CoreRank
-description: 游戏匹配与排行榜后端服务
+description: 游戏匹配、排行榜与本地房间资源分配服务
 type: go-service
-root: F:/AI编程/简历/CoreRank
+root: .
 
 health:
-  url: http://127.0.0.1:8081/healthz
-  legacy_url: http://127.0.0.1:8081/health
+  url: http://127.0.0.1:8081/readyz
+  liveness_url: http://127.0.0.1:8081/healthz
 
 metrics:
-  url: http://127.0.0.1:9091/metrics
+  gateway: http://127.0.0.1:19080/metrics
+  rank_service: http://127.0.0.1:19081/metrics
+  match_service: http://127.0.0.1:19082/metrics
   format: prometheus
 
 capabilities_endpoint:
@@ -23,17 +25,18 @@ commands:
     command: go vet ./...
     mode: 自动审查
   smoke:
-    command: python scripts/agent_smoke.py
-    mode: 自动审查
+    command: powershell -ExecutionPolicy Bypass -File scripts/distributed_smoke.ps1
+    mode: 需要本地 Compose 栈
 
 docs:
   - README.md
   - docs/api.md
+  - docs/architecture.md
   - docs/verification.md
   - docs/agent-integration.md
 
 capabilities:
-  - health
+  - readiness
   - metrics
   - go_test
   - go_vet
@@ -41,8 +44,6 @@ capabilities:
   - player_rank_query
   - match_ticket_diagnose
   - room_server_query
-  - agent_events
-  - agent_logs
 
 forbidden:
   - direct_redis_delete

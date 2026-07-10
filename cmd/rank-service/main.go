@@ -16,13 +16,13 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/handler"
-	"CoreRank/internal/repository"
-	"CoreRank/internal/rpcutil"
-	"CoreRank/internal/service"
-	appconfig "CoreRank/pkg/config"
-	redisclient "CoreRank/pkg/redis"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/handler"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/rpcutil"
+	"github.com/jingjie2002/CoreRank/internal/service"
+	appconfig "github.com/jingjie2002/CoreRank/pkg/config"
+	redisclient "github.com/jingjie2002/CoreRank/pkg/redis"
 )
 
 const (

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"CoreRank/internal/repository"
-	"CoreRank/internal/service"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/service"
 )
 
 const maxJSONBodyBytes = 64 * 1024

@@ -2087,7 +2087,7 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\x0eGetMatchResult\x12\".corerank.v1.GetMatchResultRequest\x1a#.corerank.v1.GetMatchResultResponse\x12e\n" +
 	"\x12RegisterGameServer\x12&.corerank.v1.RegisterGameServerRequest\x1a'.corerank.v1.RegisterGameServerResponse\x12h\n" +
 	"\x13HeartbeatGameServer\x12'.corerank.v1.HeartbeatGameServerRequest\x1a(.corerank.v1.HeartbeatGameServerResponse\x12\\\n" +
-	"\x0fListGameServers\x12#.corerank.v1.ListGameServersRequest\x1a$.corerank.v1.ListGameServersResponseB\x1aZ\x18CoreRank/api/proto;protob\x06proto3"
+	"\x0fListGameServers\x12#.corerank.v1.ListGameServersRequest\x1a$.corerank.v1.ListGameServersResponseB1Z/github.com/jingjie2002/CoreRank/api/proto;protob\x06proto3"
 
 var (
 	file_api_proto_rank_proto_rawDescOnce sync.Once

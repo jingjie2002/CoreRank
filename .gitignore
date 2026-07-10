@@ -52,3 +52,5 @@ Thumbs.db
 # Valid only for this project context
 tmp/
 .gocache/
+.localappdata/
+.env

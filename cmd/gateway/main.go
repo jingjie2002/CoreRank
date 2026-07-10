@@ -14,9 +14,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
-	pb "CoreRank/api/proto"
-	"CoreRank/internal/handler"
-	appconfig "CoreRank/pkg/config"
+	pb "github.com/jingjie2002/CoreRank/api/proto"
+	"github.com/jingjie2002/CoreRank/internal/handler"
+	appconfig "github.com/jingjie2002/CoreRank/pkg/config"
 )
 
 const (

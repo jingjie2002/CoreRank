@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"CoreRank/internal/repository"
-	"CoreRank/internal/testutil"
+	"github.com/jingjie2002/CoreRank/internal/repository"
+	"github.com/jingjie2002/CoreRank/internal/testutil"
 
 	"github.com/redis/go-redis/v9"
 )
