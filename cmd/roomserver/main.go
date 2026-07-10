@@ -31,6 +31,8 @@ func main() {
 		MatchMode:         envOrDefault("MATCH_MODE", roomserver.DefaultMatchMode),
 		Capacity:          envInt64("CAPACITY", roomserver.DefaultCapacity),
 		HeartbeatInterval: envDuration("HEARTBEAT_INTERVAL", envInt64("HEARTBEAT_INTERVAL_MS", 0)),
+		APIKey:            envOrDefault("CORERANK_API_KEY", ""),
+		MaxConnections:    int(envInt64("ROOM_MAX_CONNECTIONS", 1024)),
 	}
 
 	listener, err := net.Listen("tcp", config.Addr)
@@ -108,7 +110,7 @@ func envDuration(name string, fallbackMS int64) time.Duration {
 func init() {
 	if len(os.Args) > 1 && os.Args[1] == "-h" {
 		fmt.Println("CoreRank roomserver")
-		fmt.Println("env: ROOM_SERVER_ID, ROOM_SERVER_ADDR, ROOM_SERVER_PUBLIC_ADDR, CORE_RANK_HTTP, MATCH_MODE, CAPACITY, HEARTBEAT_INTERVAL")
+		fmt.Println("env: ROOM_SERVER_ID, ROOM_SERVER_ADDR, ROOM_SERVER_PUBLIC_ADDR, CORE_RANK_HTTP, CORERANK_API_KEY, MATCH_MODE, CAPACITY, HEARTBEAT_INTERVAL, ROOM_MAX_CONNECTIONS")
 		os.Exit(0)
 	}
 }

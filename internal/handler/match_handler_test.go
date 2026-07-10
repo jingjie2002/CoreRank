@@ -58,9 +58,8 @@ func newTestMatchClient(t *testing.T) (pb.MatchServiceClient, func()) {
 	dialer := func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
 	}
-	conn, err := grpc.DialContext(
-		context.Background(),
-		"bufnet",
+	conn, err := grpc.NewClient(
+		"passthrough:///bufnet",
 		grpc.WithContextDialer(dialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -100,11 +99,11 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanMatchHandlerTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketModesKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
 		return err
 	}
 
-	for _, pattern := range []string{"match:*", "server:*", "room:assignment:*"} {
+	for _, pattern := range []string{"match:*", "{match:*}", "server:*", "room:assignment:*", "{rank:*}"} {
 		if err := deleteKeysByPattern(ctx, client, pattern); err != nil {
 			return err
 		}

@@ -16,6 +16,7 @@ import (
 
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/metrics"
+	"CoreRank/internal/repository"
 	"CoreRank/internal/service"
 
 	"google.golang.org/grpc/codes"
@@ -74,9 +75,11 @@ func (h *RankHandler) UpdateScore(ctx context.Context, req *pb.UpdateScoreReques
 	// ========================================================================
 	if req.GetPlayerId() == "" {
 		metrics.RecordRequest("UpdateScore", "invalid_argument")
-		return &pb.UpdateScoreResponse{
-			Success: false,
-		}, nil
+		return nil, status.Error(codes.InvalidArgument, "player_id is required")
+	}
+	if changeType := req.GetChangeType(); changeType != "" && changeType != "ABSOLUTE" {
+		metrics.RecordRequest("UpdateScore", "invalid_argument")
+		return nil, status.Error(codes.InvalidArgument, "change_type only supports ABSOLUTE")
 	}
 
 	// ========================================================================
@@ -113,6 +116,36 @@ func (h *RankHandler) UpdateScore(ctx context.Context, req *pb.UpdateScoreReques
 	}, nil
 }
 
+func (h *RankHandler) SettleMatch(ctx context.Context, req *pb.SettleMatchRequest) (*pb.SettleMatchResponse, error) {
+	scores := make([]repository.SettlementScore, 0, len(req.GetScores()))
+	for _, score := range req.GetScores() {
+		scores = append(scores, repository.SettlementScore{
+			PlayerID: score.GetPlayerId(),
+			Score:    score.GetScore(),
+		})
+	}
+	result, err := h.rankService.SettleMatch(ctx, req.GetMatchId(), req.GetLeaderboardType(), scores)
+	if err != nil {
+		return nil, rankError(err)
+	}
+	entries := make([]*pb.RankEntry, 0, len(result.Players))
+	for _, player := range result.Players {
+		entries = append(entries, &pb.RankEntry{
+			Rank: player.Rank,
+			Player: &pb.Player{
+				PlayerId:  player.PlayerID,
+				RankScore: int64(player.Score),
+			},
+		})
+	}
+	return &pb.SettleMatchResponse{
+		MatchId:         result.MatchID,
+		LeaderboardType: result.LeaderboardType,
+		UpdatedPlayers:  entries,
+		Idempotent:      result.Idempotent,
+	}, nil
+}
+
 // GetTopRank 获取排行榜
 //
 // 查询排行榜 Top N 数据，是典型的读多写少场景。
@@ -136,7 +169,7 @@ func (h *RankHandler) GetTopRank(ctx context.Context, req *pb.GetTopRankRequest)
 	}
 
 	// 调用 Service 层获取排行榜数据
-	players, err := h.rankService.GetTopPlayersInLeaderboard(ctx, req.GetLeaderboardType(), topN)
+	players, err := h.rankService.GetTopPlayersPage(ctx, req.GetLeaderboardType(), topN, req.GetOffset())
 	if err != nil {
 		metrics.RecordRequest("GetTopRank", "error")
 		return nil, rankError(err)
@@ -154,11 +187,16 @@ func (h *RankHandler) GetTopRank(ctx context.Context, req *pb.GetTopRankRequest)
 		})
 	}
 
+	totalPlayers, err := h.rankService.CountPlayersInLeaderboard(ctx, req.GetLeaderboardType())
+	if err != nil {
+		metrics.RecordRequest("GetTopRank", "error")
+		return nil, rankError(err)
+	}
 	metrics.RecordRequest("GetTopRank", "ok")
 
 	return &pb.GetTopRankResponse{
 		Entries:      entries,
-		TotalPlayers: int64(len(entries)),
+		TotalPlayers: totalPlayers,
 		UpdatedAt:    time.Now().UnixMilli(),
 	}, nil
 }
@@ -193,8 +231,26 @@ func rankFromPlayerInfo(player *service.PlayerInfo) int64 {
 }
 
 func rankError(err error) error {
-	if errors.Is(err, service.ErrInvalidLeaderboardType) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, err.Error())
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, err.Error())
+	case errors.Is(err, repository.ErrResultNotFound):
+		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, repository.ErrSettlementConflict):
+		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, repository.ErrMatchNotSettleable):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, service.ErrInvalidLeaderboardType),
+		errors.Is(err, service.ErrInvalidSettlementPlayers),
+		errors.Is(err, service.ErrDuplicateSettlementPlayer),
+		errors.Is(err, service.ErrInvalidSettlementScore),
+		errors.Is(err, service.ErrInvalidRankScore),
+		errors.Is(err, service.ErrInvalidRankPage),
+		errors.Is(err, repository.ErrInvalidIdentifier):
 		return status.Error(codes.InvalidArgument, err.Error())
+	default:
+		return status.Error(codes.Internal, "internal rank service error")
 	}
-	return err
 }

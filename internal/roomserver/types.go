@@ -20,9 +20,11 @@ const (
 )
 
 type Request struct {
-	Type     string `json:"type"`
-	RoomID   string `json:"room_id,omitempty"`
-	PlayerID string `json:"player_id,omitempty"`
+	Type      string `json:"type"`
+	RoomID    string `json:"room_id,omitempty"`
+	PlayerID  string `json:"player_id,omitempty"`
+	MatchID   string `json:"match_id,omitempty"`
+	JoinToken string `json:"join_token,omitempty"`
 }
 
 type Response struct {
@@ -51,13 +53,25 @@ type GameServerHeartbeat struct {
 }
 
 type Config struct {
-	ServerID          string
-	Addr              string
-	PublicAddr        string
-	CoreRankHTTP      string
-	MatchMode         string
-	Capacity          int64
-	HeartbeatInterval time.Duration
+	ServerID            string
+	Addr                string
+	PublicAddr          string
+	CoreRankHTTP        string
+	MatchMode           string
+	Capacity            int64
+	HeartbeatInterval   time.Duration
+	AllowUnverifiedJoin bool
+	APIKey              string
+	MaxConnections      int
+}
+
+type MatchAssignment struct {
+	MatchID   string   `json:"match_id"`
+	RoomID    string   `json:"room_id"`
+	ServerID  string   `json:"server_id"`
+	PlayerIDs []string `json:"player_ids"`
+	Status    string   `json:"status"`
+	JoinToken string   `json:"join_token"`
 }
 
 type RoomSnapshot struct {

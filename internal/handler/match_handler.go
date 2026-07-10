@@ -100,14 +100,24 @@ func (h *MatchHandler) ListGameServers(ctx context.Context, req *pb.ListGameServ
 
 func matchError(err error) error {
 	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, err.Error())
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, err.Error())
 	case errors.Is(err, repository.ErrPlayerAlreadyQueued):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, repository.ErrTicketNotFound), errors.Is(err, repository.ErrResultNotFound), errors.Is(err, repository.ErrGameServerNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, repository.ErrTicketNotQueued), errors.Is(err, repository.ErrNoAvailableRoomServer):
+	case errors.Is(err, repository.ErrTicketNotQueued), errors.Is(err, repository.ErrNoAvailableRoomServer), errors.Is(err, repository.ErrMatchModeMismatch):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	default:
+	case errors.Is(err, repository.ErrTooManyMatchModes):
+		return status.Error(codes.ResourceExhausted, err.Error())
+	case errors.Is(err, repository.ErrInvalidIdentifier), errors.Is(err, repository.ErrInvalidMatchMode),
+		errors.Is(err, repository.ErrInvalidGameServer), errors.Is(err, service.ErrInvalidMMRScore),
+		errors.Is(err, service.ErrInvalidMaxWait):
 		return status.Error(codes.InvalidArgument, err.Error())
+	default:
+		return status.Error(codes.Internal, "internal match service error")
 	}
 }
 
@@ -123,6 +133,7 @@ func fromPBGameServer(server *pb.GameServer) repository.GameServer {
 		MatchMode:       server.GetMatchMode(),
 		Capacity:        server.GetCapacity(),
 		CurrentLoad:     server.GetCurrentLoad(),
+		ObservedLoad:    server.GetObservedLoad(),
 		Status:          server.GetStatus(),
 		LastHeartbeatAt: server.GetLastHeartbeatAt(),
 		UpdatedAt:       server.GetUpdatedAt(),
@@ -141,6 +152,7 @@ func toPBGameServer(server *repository.GameServer) *pb.GameServer {
 		MatchMode:       server.MatchMode,
 		Capacity:        server.Capacity,
 		CurrentLoad:     server.CurrentLoad,
+		ObservedLoad:    server.ObservedLoad,
 		Status:          server.Status,
 		LastHeartbeatAt: server.LastHeartbeatAt,
 		UpdatedAt:       server.UpdatedAt,
@@ -178,5 +190,6 @@ func toPBMatchResult(result *repository.MatchResult) *pb.MatchResult {
 		CreatedAt:  result.CreatedAt,
 		ServerId:   result.ServerID,
 		ServerAddr: result.ServerAddr,
+		JoinToken:  result.JoinToken,
 	}
 }

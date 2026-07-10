@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,8 +18,23 @@ import (
 
 type fakeRankClient struct {
 	updateReq *pb.UpdateScoreRequest
+	settleReq *pb.SettleMatchRequest
 	topReq    *pb.GetTopRankRequest
 	playerReq *pb.GetPlayerRankRequest
+}
+
+func (c *fakeRankClient) SettleMatch(_ context.Context, req *pb.SettleMatchRequest, _ ...grpc.CallOption) (*pb.SettleMatchResponse, error) {
+	c.settleReq = req
+	entries := make([]*pb.RankEntry, 0, len(req.GetScores()))
+	for i, score := range req.GetScores() {
+		entries = append(entries, &pb.RankEntry{
+			Rank:   int64(i + 1),
+			Player: &pb.Player{PlayerId: score.GetPlayerId(), RankScore: score.GetScore()},
+		})
+	}
+	return &pb.SettleMatchResponse{
+		MatchId: req.GetMatchId(), LeaderboardType: req.GetLeaderboardType(), UpdatedPlayers: entries,
+	}, nil
 }
 
 func (c *fakeRankClient) UpdateScore(_ context.Context, req *pb.UpdateScoreRequest, _ ...grpc.CallOption) (*pb.UpdateScoreResponse, error) {
@@ -260,6 +276,70 @@ func TestGatewayRankPlayerNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGatewaySettlementUsesSingleAtomicRPC(t *testing.T) {
+	rankClient := &fakeRankClient{}
+	handler := NewGatewayHTTPHandler(rankClient, &fakeMatchClient{})
+	req := httptest.NewRequest(http.MethodPost, "/api/matches/match-1/settle", jsonBody(map[string]any{
+		"leaderboard_type": "global",
+		"scores": []map[string]any{
+			{"player_id": "p1", "score": 1200},
+			{"player_id": "p2", "score": 1100},
+		},
+	}))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rankClient.settleReq == nil || rankClient.settleReq.GetMatchId() != "match-1" || len(rankClient.settleReq.GetScores()) != 2 {
+		t.Fatalf("unexpected SettleMatch request: %#v", rankClient.settleReq)
+	}
+	if rankClient.updateReq != nil {
+		t.Fatalf("settlement must not issue per-player UpdateScore calls: %#v", rankClient.updateReq)
+	}
+}
+
+func TestGatewayAPIKeyAndBodyLimit(t *testing.T) {
+	protected := RequireAPIKey(NewGatewayHTTPHandler(&fakeRankClient{}, &fakeMatchClient{}), "test-secret")
+
+	unauthorized := httptest.NewRequest(http.MethodGet, "/api/rank/top", nil)
+	unauthorizedRec := httptest.NewRecorder()
+	protected.ServeHTTP(unauthorizedRec, unauthorized)
+	if unauthorizedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected API key rejection, got %d", unauthorizedRec.Code)
+	}
+
+	largeBody := bytes.Repeat([]byte("x"), maxJSONBodyBytes+1)
+	largeReq := httptest.NewRequest(http.MethodPost, "/api/rank/score", bytes.NewReader(largeBody))
+	largeReq.Header.Set("X-CoreRank-API-Key", "test-secret")
+	largeRec := httptest.NewRecorder()
+	protected.ServeHTTP(largeRec, largeReq)
+	if largeRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected oversized body rejection, got %d", largeRec.Code)
+	}
+}
+
+func TestGatewayReadinessReflectsBackendFailure(t *testing.T) {
+	handler := NewGatewayHTTPHandlerWithReadiness(&fakeRankClient{}, &fakeMatchClient{}, func(context.Context) error {
+		return errors.New("redis dependency unavailable")
+	})
+	readyReq := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	readyRec := httptest.NewRecorder()
+	handler.ServeHTTP(readyRec, readyReq)
+	if readyRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected readiness 503, got %d body=%s", readyRec.Code, readyRec.Body.String())
+	}
+
+	liveReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	liveRec := httptest.NewRecorder()
+	handler.ServeHTTP(liveRec, liveReq)
+	if liveRec.Code != http.StatusOK {
+		t.Fatalf("liveness must stay independent, got %d", liveRec.Code)
 	}
 }
 

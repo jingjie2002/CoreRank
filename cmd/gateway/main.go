@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/handler"
@@ -26,6 +27,7 @@ const (
 	defaultRankGRPCTarget     = "127.0.0.1:18081"
 	defaultMatchGRPCTarget    = "127.0.0.1:18082"
 	shutdownTimeout           = 5 * time.Second
+	startupTimeout            = 10 * time.Second
 )
 
 func main() {
@@ -35,6 +37,7 @@ func main() {
 	metricsAddr := appconfig.String("GATEWAY_METRICS_ADDR", defaultGatewayMetricsAddr)
 	rankTarget := appconfig.String("RANK_GRPC_TARGET", defaultRankGRPCTarget)
 	matchTarget := appconfig.String("MATCH_GRPC_TARGET", defaultMatchGRPCTarget)
+	apiKey := appconfig.String("CORERANK_API_KEY", "")
 
 	rankConn, err := newGRPCClient(rankTarget)
 	if err != nil {
@@ -49,16 +52,33 @@ func main() {
 		os.Exit(1)
 	}
 	defer matchConn.Close()
+	readiness := func(ctx context.Context) error {
+		if _, err := grpc_health_v1.NewHealthClient(rankConn).Check(ctx, &grpc_health_v1.HealthCheckRequest{}); err != nil {
+			return fmt.Errorf("rank-service: %w", err)
+		}
+		if _, err := grpc_health_v1.NewHealthClient(matchConn).Check(ctx, &grpc_health_v1.HealthCheckRequest{}); err != nil {
+			return fmt.Errorf("match-service: %w", err)
+		}
+		return nil
+	}
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupTimeout)
+	if err := readiness(startupCtx); err != nil {
+		cancelStartup()
+		fmt.Printf("[%s] backend readiness check failed: %v\n", appName, err)
+		os.Exit(1)
+	}
+	cancelStartup()
 
 	fmt.Printf("[%s] rank-service target: %s\n", appName, rankTarget)
 	fmt.Printf("[%s] match-service target: %s\n", appName, matchTarget)
 
 	httpServer := startHTTPServer(
 		httpAddr,
-		handler.NewGatewayHTTPHandler(
+		handler.RequireAPIKey(handler.NewGatewayHTTPHandlerWithReadiness(
 			pb.NewRankServiceClient(rankConn),
 			pb.NewMatchServiceClient(matchConn),
-		),
+			readiness,
+		), apiKey),
 	)
 	metricsServer := startMetricsServer(metricsAddr)
 
@@ -78,12 +98,17 @@ func startHTTPServer(addr string, httpHandler http.Handler) *http.Server {
 		Addr:              addr,
 		Handler:           httpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
 	}
 
 	go func() {
 		fmt.Printf("[%s] HTTP gateway listening on http://localhost%s\n", appName, addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[%s] HTTP gateway failed: %v\n", appName, err)
+			os.Exit(1)
 		}
 	}()
 
@@ -104,6 +129,7 @@ func startMetricsServer(addr string) *http.Server {
 		fmt.Printf("[%s] metrics listening on http://localhost%s/metrics\n", appName, addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[%s] metrics server failed: %v\n", appName, err)
+			os.Exit(1)
 		}
 	}()
 

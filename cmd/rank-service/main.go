@@ -12,11 +12,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/handler"
 	"CoreRank/internal/repository"
+	"CoreRank/internal/rpcutil"
 	"CoreRank/internal/service"
 	appconfig "CoreRank/pkg/config"
 	redisclient "CoreRank/pkg/redis"
@@ -88,19 +91,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(rpcutil.ServerOptions()...)
 	pb.RegisterRankServiceServer(grpcServer, handler.NewRankHandler(rankService))
+	healthServer := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	healthCtx, stopHealth := context.WithCancel(context.Background())
+	defer stopHealth()
+	go rpcutil.MonitorDependencyHealth(healthCtx, client, healthServer, 2*time.Second)
 	reflection.Register(grpcServer)
 
 	go func() {
 		fmt.Printf("[%s] gRPC server listening on %s\n", appName, grpcAddr)
 		if err := grpcServer.Serve(listener); err != nil {
 			fmt.Printf("[%s] gRPC server stopped: %v\n", appName, err)
+			os.Exit(1)
 		}
 	}()
 
 	fmt.Printf("[%s] service is ready\n", appName)
-	waitForShutdown(grpcServer, metricsServer)
+	waitForShutdown(grpcServer, healthServer, metricsServer, stopHealth)
 }
 
 func startMetricsServer(addr string) *http.Server {
@@ -117,13 +127,14 @@ func startMetricsServer(addr string) *http.Server {
 		fmt.Printf("[%s] metrics listening on http://localhost%s/metrics\n", appName, addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[%s] metrics server failed: %v\n", appName, err)
+			os.Exit(1)
 		}
 	}()
 
 	return server
 }
 
-func waitForShutdown(grpcServer *grpc.Server, metricsServer *http.Server) {
+func waitForShutdown(grpcServer *grpc.Server, healthServer *health.Server, metricsServer *http.Server, stopHealth context.CancelFunc) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
@@ -139,8 +150,23 @@ func waitForShutdown(grpcServer *grpc.Server, metricsServer *http.Server) {
 		fmt.Printf("[%s] metrics server stopped\n", appName)
 	}
 
-	grpcServer.GracefulStop()
+	stopHealth()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	gracefulStopGRPC(grpcServer, shutdownCtx)
 	fmt.Printf("[%s] gRPC server stopped\n", appName)
+}
+
+func gracefulStopGRPC(server *grpc.Server, ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		server.Stop()
+	}
 }
 
 func printBanner() {

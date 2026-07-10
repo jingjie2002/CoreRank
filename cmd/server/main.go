@@ -34,6 +34,7 @@ import (
 	pb "CoreRank/api/proto"
 	"CoreRank/internal/handler"
 	"CoreRank/internal/repository"
+	"CoreRank/internal/rpcutil"
 	"CoreRank/internal/service"
 	redisclient "CoreRank/pkg/redis"
 )
@@ -152,7 +153,10 @@ func main() {
 	fmt.Printf("[%s] ✅ MatchWorker 初始化完成\n", appName)
 
 	// RESTful API 网关
-	httpHandler := handler.NewHTTPHandler(rankService, playerRepo, matchService)
+	httpHandler := handler.RequireAPIKey(
+		handler.NewHTTPHandler(rankService, playerRepo, matchService),
+		envOrDefault("CORERANK_API_KEY", ""),
+	)
 	fmt.Printf("[%s] ✅ RESTful API Handler 初始化完成\n", appName)
 
 	// =========================================================================
@@ -174,6 +178,10 @@ func main() {
 		Addr:              metricsAddr,
 		Handler:           metricsMux,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
 	}
 
 	go func() {
@@ -187,6 +195,10 @@ func main() {
 		Addr:              httpAddr,
 		Handler:           httpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
 	}
 
 	go func() {
@@ -219,7 +231,7 @@ func main() {
 	//
 	// grpc.NewServer() 创建一个新的 gRPC 服务器实例。
 	// 可以传入 ServerOption 配置拦截器、TLS 等高级功能。
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(rpcutil.ServerOptions()...)
 
 	// 注册 RankService 到 gRPC 服务器
 	//

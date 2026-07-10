@@ -1,17 +1,20 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"CoreRank/internal/repository"
 	"CoreRank/internal/service"
 )
+
+const maxJSONBodyBytes = 64 * 1024
 
 // NewHTTPHandler exposes a small RESTful gateway on top of the same Redis-backed
 // rank and match repository used by the gRPC service.
@@ -20,6 +23,7 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /healthz", handleHealth)
+	mux.HandleFunc("GET /readyz", handleHealth)
 	mux.HandleFunc("GET /api/agent/capabilities", handleAgentCapabilities)
 	mux.HandleFunc("GET /api/agent/events", handleAgentEvents)
 	mux.HandleFunc("GET /api/agent/logs", handleAgentLogs)
@@ -99,9 +103,9 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 
 	mux.HandleFunc("POST /api/rank/score", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			PlayerID        string  `json:"player_id"`
-			Score           float64 `json:"score"`
-			LeaderboardType string  `json:"leaderboard_type"`
+			PlayerID        string `json:"player_id"`
+			Score           int64  `json:"score"`
+			LeaderboardType string `json:"leaderboard_type"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -112,12 +116,8 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 			return
 		}
 		leaderboardType := rankLeaderboardType(r, req.LeaderboardType)
-		if err := rankService.UpdatePlayerScoreInLeaderboard(r.Context(), leaderboardType, req.PlayerID, req.Score); err != nil {
-			if errors.Is(err, service.ErrInvalidLeaderboardType) {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-			writeError(w, http.StatusInternalServerError, err)
+		if err := rankService.UpdatePlayerScoreInLeaderboard(r.Context(), leaderboardType, req.PlayerID, float64(req.Score)); err != nil {
+			writeRankHTTPError(w, err)
 			return
 		}
 		player, err := rankService.GetPlayerRankInLeaderboard(r.Context(), leaderboardType, req.PlayerID)
@@ -129,14 +129,19 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 	})
 
 	mux.HandleFunc("GET /api/rank/top", func(w http.ResponseWriter, r *http.Request) {
-		topN, _ := strconv.ParseInt(r.URL.Query().Get("n"), 10, 64)
-		players, err := rankService.GetTopPlayersInLeaderboard(r.Context(), rankLeaderboardType(r, ""), topN)
+		topN, err := parseOptionalInt64(r.URL.Query().Get("n"))
 		if err != nil {
-			if errors.Is(err, service.ErrInvalidLeaderboardType) {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, http.StatusBadRequest, errors.New("n must be an integer"))
+			return
+		}
+		offset, err := parseOptionalInt64(r.URL.Query().Get("offset"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("offset must be an integer"))
+			return
+		}
+		players, err := rankService.GetTopPlayersPage(r.Context(), rankLeaderboardType(r, ""), topN, offset)
+		if err != nil {
+			writeRankHTTPError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, players)
@@ -254,16 +259,11 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 			writeError(w, http.StatusBadRequest, errors.New("match_id is required"))
 			return
 		}
-		if _, err := matchService.GetResult(r.Context(), matchID); err != nil {
-			writeMatchError(w, err)
-			return
-		}
-
 		var req struct {
 			LeaderboardType string `json:"leaderboard_type"`
 			Scores          []struct {
-				PlayerID string  `json:"player_id"`
-				Score    float64 `json:"score"`
+				PlayerID string `json:"player_id"`
+				Score    int64  `json:"score"`
 			} `json:"scores"`
 		}
 		if err := readJSON(r, &req); err != nil {
@@ -276,32 +276,25 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 		}
 
 		leaderboardType := rankLeaderboardType(r, req.LeaderboardType)
-		updated := make([]*service.PlayerInfo, 0, len(req.Scores))
+		scores := make([]repository.SettlementScore, 0, len(req.Scores))
 		for _, score := range req.Scores {
-			if score.PlayerID == "" {
-				writeError(w, http.StatusBadRequest, errors.New("player_id is required"))
-				return
-			}
-			if err := rankService.UpdatePlayerScoreInLeaderboard(r.Context(), leaderboardType, score.PlayerID, score.Score); err != nil {
-				if errors.Is(err, service.ErrInvalidLeaderboardType) {
-					writeError(w, http.StatusBadRequest, err)
-					return
-				}
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			player, err := rankService.GetPlayerRankInLeaderboard(r.Context(), leaderboardType, score.PlayerID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			updated = append(updated, player)
+			scores = append(scores, repository.SettlementScore{PlayerID: score.PlayerID, Score: score.Score})
+		}
+		result, err := rankService.SettleMatch(r.Context(), matchID, leaderboardType, scores)
+		if err != nil {
+			writeSettlementError(w, err)
+			return
+		}
+		updated := make([]gatewayRankPlayer, 0, len(result.Players))
+		for _, player := range result.Players {
+			updated = append(updated, gatewayRankPlayer{PlayerID: player.PlayerID, Score: player.Score, Rank: player.Rank})
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"match_id":         matchID,
-			"leaderboard_type": leaderboardType,
+			"leaderboard_type": result.LeaderboardType,
 			"updated_players":  updated,
+			"idempotent":       result.Idempotent,
 		})
 	})
 
@@ -321,7 +314,31 @@ func NewHTTPHandler(rankService *service.RankService, playerRepo *repository.Pla
 		})
 	})
 
-	return mux
+	return withGatewayProtection(mux)
+}
+
+func writeSettlementError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, repository.ErrResultNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, repository.ErrSettlementConflict):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, repository.ErrInvalidIdentifier), errors.Is(err, service.ErrInvalidLeaderboardType),
+		errors.Is(err, service.ErrInvalidSettlementPlayers), errors.Is(err, service.ErrDuplicateSettlementPlayer),
+		errors.Is(err, service.ErrInvalidSettlementScore):
+		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeError(w, http.StatusInternalServerError, errors.New("internal settlement error"))
+	}
+}
+
+func writeRankHTTPError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrInvalidLeaderboardType) || errors.Is(err, service.ErrInvalidRankScore) ||
+		errors.Is(err, service.ErrInvalidRankPage) || errors.Is(err, repository.ErrInvalidIdentifier) {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, errors.New("internal rank service error"))
 }
 
 func rankLeaderboardType(r *http.Request, bodyValue string) string {
@@ -336,18 +353,52 @@ func rankLeaderboardType(r *http.Request, bodyValue string) string {
 
 func readJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
+	if r.ContentLength > maxJSONBodyBytes {
+		return fmt.Errorf("request body exceeds %d bytes", maxJSONBodyBytes)
+	}
+	limited := &io.LimitedReader{R: r.Body, N: maxJSONBodyBytes + 1}
+	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := ensureSingleJSONValue(decoder); err != nil {
+		return err
+	}
+	if limited.N <= 0 {
+		return fmt.Errorf("request body exceeds %d bytes", maxJSONBodyBytes)
+	}
+	return nil
 }
 
 func readOptionalJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
+	if r.ContentLength > maxJSONBodyBytes {
+		return fmt.Errorf("request body exceeds %d bytes", maxJSONBodyBytes)
+	}
+	limited := &io.LimitedReader{R: r.Body, N: maxJSONBodyBytes + 1}
+	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil
+		}
+		return err
+	}
+	if err := ensureSingleJSONValue(decoder); err != nil {
+		return err
+	}
+	if limited.N <= 0 {
+		return fmt.Errorf("request body exceeds %d bytes", maxJSONBodyBytes)
+	}
+	return nil
+}
+
+func ensureSingleJSONValue(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("request body must contain a single JSON object")
 		}
 		return err
 	}
@@ -366,14 +417,22 @@ func writeError(w http.ResponseWriter, status int, err error) {
 
 func writeMatchError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusGatewayTimeout, err)
 	case errors.Is(err, repository.ErrPlayerAlreadyQueued):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, repository.ErrTicketNotFound), errors.Is(err, repository.ErrResultNotFound):
 		writeError(w, http.StatusNotFound, err)
-	case errors.Is(err, repository.ErrTicketNotQueued):
+	case errors.Is(err, repository.ErrTicketNotQueued), errors.Is(err, repository.ErrMatchModeMismatch), errors.Is(err, repository.ErrNoAvailableRoomServer):
 		writeError(w, http.StatusConflict, err)
-	default:
+	case errors.Is(err, repository.ErrTooManyMatchModes):
+		writeError(w, http.StatusTooManyRequests, err)
+	case errors.Is(err, repository.ErrInvalidIdentifier), errors.Is(err, repository.ErrInvalidMatchMode),
+		errors.Is(err, repository.ErrInvalidGameServer), errors.Is(err, service.ErrInvalidMMRScore),
+		errors.Is(err, service.ErrInvalidMaxWait):
 		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeError(w, http.StatusInternalServerError, errors.New("internal match service error"))
 	}
 }
 
@@ -383,7 +442,9 @@ func writeRoomServerError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, repository.ErrNoAvailableRoomServer):
 		writeError(w, http.StatusConflict, err)
-	default:
+	case errors.Is(err, repository.ErrInvalidIdentifier), errors.Is(err, repository.ErrInvalidMatchMode), errors.Is(err, repository.ErrInvalidGameServer):
 		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeError(w, http.StatusInternalServerError, errors.New("internal room server error"))
 	}
 }

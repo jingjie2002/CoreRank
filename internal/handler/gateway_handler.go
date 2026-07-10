@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"context"
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	pb "CoreRank/api/proto"
 
@@ -13,10 +16,15 @@ import (
 )
 
 type gatewayRankPlayer struct {
-	PlayerID string
-	Score    float64
-	Rank     int64
+	PlayerID string  `json:"player_id"`
+	Score    float64 `json:"score"`
+	Rank     int64   `json:"rank"`
 }
+
+const (
+	gatewayRPCTimeout = 3 * time.Second
+	maxConcurrentHTTP = 256
+)
 
 type gatewayGameServer struct {
 	ServerID        string `json:"server_id"`
@@ -26,42 +34,57 @@ type gatewayGameServer struct {
 	MatchMode       string `json:"match_mode"`
 	Capacity        int64  `json:"capacity"`
 	CurrentLoad     int64  `json:"current_load"`
+	ObservedLoad    int64  `json:"observed_load"`
 	Status          string `json:"status"`
 	LastHeartbeatAt int64  `json:"last_heartbeat_at"`
 	UpdatedAt       int64  `json:"updated_at"`
 }
 
 type gatewayMatchTicket struct {
-	TicketID  string
-	PlayerID  string
-	MMRScore  int64
-	MatchMode string
-	Status    string
-	MatchID   string
-	RoomID    string
-	CreatedAt int64
-	UpdatedAt int64
-	ExpiresAt int64
+	TicketID  string `json:"ticket_id"`
+	PlayerID  string `json:"player_id"`
+	MMRScore  int64  `json:"mmr_score"`
+	MatchMode string `json:"match_mode"`
+	Status    string `json:"status"`
+	MatchID   string `json:"match_id"`
+	RoomID    string `json:"room_id"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 type gatewayMatchResult struct {
-	MatchID    string
-	RoomID     string
-	ServerID   string
-	ServerAddr string
-	MatchMode  string
-	PlayerIDs  []string
-	Status     string
-	CreatedAt  int64
+	MatchID    string   `json:"match_id"`
+	RoomID     string   `json:"room_id"`
+	ServerID   string   `json:"server_id"`
+	ServerAddr string   `json:"server_addr"`
+	MatchMode  string   `json:"match_mode"`
+	PlayerIDs  []string `json:"player_ids"`
+	Status     string   `json:"status"`
+	CreatedAt  int64    `json:"created_at"`
+	JoinToken  string   `json:"join_token"`
 }
 
 // NewGatewayHTTPHandler exposes the REST API through gRPC clients. It is used
 // by cmd/gateway, while NewHTTPHandler keeps serving the legacy in-process mode.
 func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.MatchServiceClient) http.Handler {
+	return NewGatewayHTTPHandlerWithReadiness(rankClient, matchClient, nil)
+}
+
+func NewGatewayHTTPHandlerWithReadiness(rankClient pb.RankServiceClient, matchClient pb.MatchServiceClient, readiness func(context.Context) error) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /healthz", handleHealth)
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if readiness != nil {
+			if err := readiness(r.Context()); err != nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("backend services are not ready"))
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
 	mux.HandleFunc("GET /api/agent/capabilities", handleAgentCapabilities)
 	mux.HandleFunc("GET /api/agent/events", handleAgentEvents)
 	mux.HandleFunc("GET /api/agent/logs", handleAgentLogs)
@@ -73,9 +96,9 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 		}
 
 		var req struct {
-			PlayerID        string  `json:"player_id"`
-			Score           float64 `json:"score"`
-			LeaderboardType string  `json:"leaderboard_type"`
+			PlayerID        string `json:"player_id"`
+			Score           int64  `json:"score"`
+			LeaderboardType string `json:"leaderboard_type"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -89,7 +112,7 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 
 		resp, err := rankClient.UpdateScore(r.Context(), &pb.UpdateScoreRequest{
 			PlayerId:        req.PlayerID,
-			NewScore:        int64(req.Score),
+			NewScore:        req.Score,
 			ChangeType:      "ABSOLUTE",
 			LeaderboardType: leaderboardType,
 		})
@@ -103,7 +126,7 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 		}
 
 		playerID := req.PlayerID
-		score := req.Score
+		score := float64(req.Score)
 		if player := resp.GetPlayer(); player != nil {
 			if player.GetPlayerId() != "" {
 				playerID = player.GetPlayerId()
@@ -124,10 +147,24 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 		}
 
 		leaderboardType := rankLeaderboardType(r, "")
-		topN, _ := strconv.ParseInt(r.URL.Query().Get("n"), 10, 64)
+		topN, err := parseOptionalInt64(r.URL.Query().Get("n"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("n must be an integer"))
+			return
+		}
+		offset, err := parseOptionalInt64(r.URL.Query().Get("offset"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("offset must be an integer"))
+			return
+		}
+		if topN < 0 || topN > 100 || offset < 0 || offset > 10000 {
+			writeError(w, http.StatusBadRequest, errors.New("n must be between 1 and 100 and offset must be between 0 and 10000"))
+			return
+		}
 		resp, err := rankClient.GetTopRank(r.Context(), &pb.GetTopRankRequest{
 			LeaderboardType: leaderboardType,
 			TopN:            int32(topN),
+			Offset:          offset,
 		})
 		if err != nil {
 			writeGatewayGRPCError(w, err)
@@ -268,8 +305,8 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 	})
 
 	mux.HandleFunc("POST /api/matches/", func(w http.ResponseWriter, r *http.Request) {
-		if rankClient == nil || matchClient == nil {
-			writeGatewayUnavailable(w, "rank-service or match-service client is not configured")
+		if rankClient == nil {
+			writeGatewayUnavailable(w, "rank-service client is not configured")
 			return
 		}
 
@@ -283,16 +320,11 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 			writeError(w, http.StatusBadRequest, errors.New("match_id is required"))
 			return
 		}
-		if _, err := matchClient.GetMatchResult(r.Context(), &pb.GetMatchResultRequest{MatchId: matchID}); err != nil {
-			writeGatewayGRPCError(w, err)
-			return
-		}
-
 		var req struct {
 			LeaderboardType string `json:"leaderboard_type"`
 			Scores          []struct {
-				PlayerID string  `json:"player_id"`
-				Score    float64 `json:"score"`
+				PlayerID string `json:"player_id"`
+				Score    int64  `json:"score"`
 			} `json:"scores"`
 		}
 		if err := readJSON(r, &req); err != nil {
@@ -305,26 +337,29 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 		}
 		leaderboardType := rankLeaderboardType(r, req.LeaderboardType)
 
-		updated := make([]gatewayRankPlayer, 0, len(req.Scores))
+		settlementScores := make([]*pb.SettlementScore, 0, len(req.Scores))
 		for _, score := range req.Scores {
 			if score.PlayerID == "" {
 				writeError(w, http.StatusBadRequest, errors.New("player_id is required"))
 				return
 			}
-			resp, err := rankClient.UpdateScore(r.Context(), &pb.UpdateScoreRequest{
-				PlayerId:        score.PlayerID,
-				NewScore:        int64(score.Score),
-				ChangeType:      "ABSOLUTE",
-				LeaderboardType: leaderboardType,
-			})
-			if err != nil {
-				writeGatewayGRPCError(w, err)
-				return
-			}
+			settlementScores = append(settlementScores, &pb.SettlementScore{PlayerId: score.PlayerID, Score: score.Score})
+		}
+		resp, err := rankClient.SettleMatch(r.Context(), &pb.SettleMatchRequest{
+			MatchId:         matchID,
+			LeaderboardType: leaderboardType,
+			Scores:          settlementScores,
+		})
+		if err != nil {
+			writeGatewayGRPCError(w, err)
+			return
+		}
+		updated := make([]gatewayRankPlayer, 0, len(resp.GetUpdatedPlayers()))
+		for _, entry := range resp.GetUpdatedPlayers() {
 			updated = append(updated, gatewayRankPlayer{
-				PlayerID: score.PlayerID,
-				Score:    float64(resp.GetPlayer().GetRankScore()),
-				Rank:     resp.GetCurrentRank(),
+				PlayerID: entry.GetPlayer().GetPlayerId(),
+				Score:    float64(entry.GetPlayer().GetRankScore()),
+				Rank:     entry.GetRank(),
 			})
 		}
 
@@ -332,6 +367,7 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 			"match_id":         matchID,
 			"leaderboard_type": leaderboardType,
 			"updated_players":  updated,
+			"idempotent":       resp.GetIdempotent(),
 		})
 	})
 
@@ -422,7 +458,54 @@ func NewGatewayHTTPHandler(rankClient pb.RankServiceClient, matchClient pb.Match
 		writeJSON(w, http.StatusOK, toGatewayGameServer(resp.GetServer()))
 	})
 
-	return mux
+	return withGatewayProtection(mux)
+}
+
+func parseOptionalInt64(value string) (int64, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(value, 10, 64)
+}
+
+func withGatewayProtection(next http.Handler) http.Handler {
+	semaphore := make(chan struct{}, maxConcurrentHTTP)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case semaphore <- struct{}{}:
+			defer func() { <-semaphore }()
+		default:
+			writeError(w, http.StatusServiceUnavailable, errors.New("too many concurrent requests"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), gatewayRPCTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// RequireAPIKey protects API routes when a key is configured. Health and
+// readiness endpoints stay available for local orchestration probes.
+func RequireAPIKey(next http.Handler, apiKey string) http.Handler {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		provided := strings.TrimSpace(r.Header.Get("X-CoreRank-API-Key"))
+		if provided == "" {
+			provided = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
+			writeError(w, http.StatusUnauthorized, errors.New("valid API key is required"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func toGatewayMatchTicket(ticket *pb.MatchTicket) gatewayMatchTicket {
@@ -452,6 +535,7 @@ func fromGatewayGameServer(server gatewayGameServer) *pb.GameServer {
 		MatchMode:       server.MatchMode,
 		Capacity:        server.Capacity,
 		CurrentLoad:     server.CurrentLoad,
+		ObservedLoad:    server.ObservedLoad,
 		Status:          server.Status,
 		LastHeartbeatAt: server.LastHeartbeatAt,
 		UpdatedAt:       server.UpdatedAt,
@@ -470,6 +554,7 @@ func toGatewayGameServer(server *pb.GameServer) gatewayGameServer {
 		MatchMode:       server.GetMatchMode(),
 		Capacity:        server.GetCapacity(),
 		CurrentLoad:     server.GetCurrentLoad(),
+		ObservedLoad:    server.GetObservedLoad(),
 		Status:          server.GetStatus(),
 		LastHeartbeatAt: server.GetLastHeartbeatAt(),
 		UpdatedAt:       server.GetUpdatedAt(),
@@ -489,6 +574,7 @@ func toGatewayMatchResult(result *pb.MatchResult) gatewayMatchResult {
 		PlayerIDs:  append([]string(nil), result.GetPlayerIds()...),
 		Status:     result.GetStatus(),
 		CreatedAt:  result.GetCreatedAt(),
+		JoinToken:  result.GetJoinToken(),
 	}
 }
 
@@ -511,14 +597,22 @@ func writeGatewayGRPCError(w http.ResponseWriter, err error) {
 	switch st.Code() {
 	case codes.InvalidArgument:
 		httpStatus = http.StatusBadRequest
+	case codes.Unauthenticated:
+		httpStatus = http.StatusUnauthorized
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
 	case codes.AlreadyExists, codes.FailedPrecondition:
 		httpStatus = http.StatusConflict
 	case codes.NotFound:
 		httpStatus = http.StatusNotFound
 	case codes.Unavailable:
 		httpStatus = http.StatusServiceUnavailable
+	case codes.ResourceExhausted:
+		httpStatus = http.StatusTooManyRequests
 	case codes.DeadlineExceeded:
 		httpStatus = http.StatusGatewayTimeout
+	case codes.Canceled:
+		httpStatus = http.StatusRequestTimeout
 	}
 	writeError(w, httpStatus, errors.New(st.Message()))
 }
