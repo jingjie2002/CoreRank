@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RankService_UpdateScore_FullMethodName   = "/corerank.v1.RankService/UpdateScore"
+	RankService_SettleMatch_FullMethodName   = "/corerank.v1.RankService/SettleMatch"
 	RankService_GetTopRank_FullMethodName    = "/corerank.v1.RankService/GetTopRank"
 	RankService_GetPlayerRank_FullMethodName = "/corerank.v1.RankService/GetPlayerRank"
 )
@@ -42,6 +43,7 @@ type RankServiceClient interface {
 	//
 	// 性能要求：P99 延迟 < 10ms
 	UpdateScore(ctx context.Context, in *UpdateScoreRequest, opts ...grpc.CallOption) (*UpdateScoreResponse, error)
+	SettleMatch(ctx context.Context, in *SettleMatchRequest, opts ...grpc.CallOption) (*SettleMatchResponse, error)
 	// GetTopRank 获取排行榜
 	//
 	// 支持获取 Top N 排名和分页查询。
@@ -65,6 +67,16 @@ func (c *rankServiceClient) UpdateScore(ctx context.Context, in *UpdateScoreRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateScoreResponse)
 	err := c.cc.Invoke(ctx, RankService_UpdateScore_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rankServiceClient) SettleMatch(ctx context.Context, in *SettleMatchRequest, opts ...grpc.CallOption) (*SettleMatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SettleMatchResponse)
+	err := c.cc.Invoke(ctx, RankService_SettleMatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +121,7 @@ type RankServiceServer interface {
 	//
 	// 性能要求：P99 延迟 < 10ms
 	UpdateScore(context.Context, *UpdateScoreRequest) (*UpdateScoreResponse, error)
+	SettleMatch(context.Context, *SettleMatchRequest) (*SettleMatchResponse, error)
 	// GetTopRank 获取排行榜
 	//
 	// 支持获取 Top N 排名和分页查询。
@@ -130,6 +143,9 @@ type UnimplementedRankServiceServer struct{}
 
 func (UnimplementedRankServiceServer) UpdateScore(context.Context, *UpdateScoreRequest) (*UpdateScoreResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateScore not implemented")
+}
+func (UnimplementedRankServiceServer) SettleMatch(context.Context, *SettleMatchRequest) (*SettleMatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SettleMatch not implemented")
 }
 func (UnimplementedRankServiceServer) GetTopRank(context.Context, *GetTopRankRequest) (*GetTopRankResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTopRank not implemented")
@@ -172,6 +188,24 @@ func _RankService_UpdateScore_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RankServiceServer).UpdateScore(ctx, req.(*UpdateScoreRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RankService_SettleMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SettleMatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RankServiceServer).SettleMatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RankService_SettleMatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RankServiceServer).SettleMatch(ctx, req.(*SettleMatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -222,6 +256,10 @@ var RankService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateScore",
 			Handler:    _RankService_UpdateScore_Handler,
+		},
+		{
+			MethodName: "SettleMatch",
+			Handler:    _RankService_SettleMatch_Handler,
 		},
 		{
 			MethodName: "GetTopRank",

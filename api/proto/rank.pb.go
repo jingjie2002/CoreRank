@@ -389,15 +389,17 @@ func (x *MatchTicket) GetExpiresAt() int64 {
 
 // MatchResult 匹配结果
 type MatchResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	RoomId        string                 `protobuf:"bytes,2,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
-	MatchMode     string                 `protobuf:"bytes,3,opt,name=match_mode,json=matchMode,proto3" json:"match_mode,omitempty"`
-	PlayerIds     []string               `protobuf:"bytes,4,rep,name=player_ids,json=playerIds,proto3" json:"player_ids,omitempty"`
-	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ServerId      string                 `protobuf:"bytes,7,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
-	ServerAddr    string                 `protobuf:"bytes,8,opt,name=server_addr,json=serverAddr,proto3" json:"server_addr,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MatchId    string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	RoomId     string                 `protobuf:"bytes,2,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
+	MatchMode  string                 `protobuf:"bytes,3,opt,name=match_mode,json=matchMode,proto3" json:"match_mode,omitempty"`
+	PlayerIds  []string               `protobuf:"bytes,4,rep,name=player_ids,json=playerIds,proto3" json:"player_ids,omitempty"`
+	Status     string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt  int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ServerId   string                 `protobuf:"bytes,7,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerAddr string                 `protobuf:"bytes,8,opt,name=server_addr,json=serverAddr,proto3" json:"server_addr,omitempty"`
+	// Token required by the assigned roomserver during TCP join.
+	JoinToken     string `protobuf:"bytes,9,opt,name=join_token,json=joinToken,proto3" json:"join_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -488,6 +490,13 @@ func (x *MatchResult) GetServerAddr() string {
 	return ""
 }
 
+func (x *MatchResult) GetJoinToken() string {
+	if x != nil {
+		return x.JoinToken
+	}
+	return ""
+}
+
 // GameServer 房间/战斗服务器状态
 type GameServer struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -501,8 +510,11 @@ type GameServer struct {
 	Status          string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	LastHeartbeatAt int64                  `protobuf:"varint,9,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3" json:"last_heartbeat_at,omitempty"`
 	UpdatedAt       int64                  `protobuf:"varint,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Player connections reported by roomserver heartbeats. current_load is
+	// the allocator-owned reservation count.
+	ObservedLoad  int64 `protobuf:"varint,11,opt,name=observed_load,json=observedLoad,proto3" json:"observed_load,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GameServer) Reset() {
@@ -601,6 +613,13 @@ func (x *GameServer) GetLastHeartbeatAt() int64 {
 func (x *GameServer) GetUpdatedAt() int64 {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return 0
+}
+
+func (x *GameServer) GetObservedLoad() int64 {
+	if x != nil {
+		return x.ObservedLoad
 	}
 	return 0
 }
@@ -1291,6 +1310,7 @@ type UpdateScoreRequest struct {
 	// 新的排行榜分数
 	NewScore int64 `protobuf:"varint,2,opt,name=new_score,json=newScore,proto3" json:"new_score,omitempty"`
 	// 分数变化类型：ABSOLUTE（绝对值）/ INCREMENT（增量）
+	// V1 accepts an empty value or ABSOLUTE. INCREMENT is not implemented.
 	ChangeType string `protobuf:"bytes,3,opt,name=change_type,json=changeType,proto3" json:"change_type,omitempty"`
 	// 排行榜类型/维度（为空时使用全局榜）
 	LeaderboardType string `protobuf:"bytes,4,opt,name=leaderboard_type,json=leaderboardType,proto3" json:"leaderboard_type,omitempty"`
@@ -1428,6 +1448,7 @@ type GetTopRankRequest struct {
 	// 获取前 N 名
 	TopN int32 `protobuf:"varint,2,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"`
 	// 分页偏移量（可选，用于获取"我的附近排名"场景）
+	// Zero-based pagination offset, limited by the service.
 	Offset        int64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1548,6 +1569,186 @@ func (x *GetTopRankResponse) GetUpdatedAt() int64 {
 	return 0
 }
 
+type SettlementScore struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId      string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	Score         int64                  `protobuf:"varint,2,opt,name=score,proto3" json:"score,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SettlementScore) Reset() {
+	*x = SettlementScore{}
+	mi := &file_api_proto_rank_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SettlementScore) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SettlementScore) ProtoMessage() {}
+
+func (x *SettlementScore) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SettlementScore.ProtoReflect.Descriptor instead.
+func (*SettlementScore) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SettlementScore) GetPlayerId() string {
+	if x != nil {
+		return x.PlayerId
+	}
+	return ""
+}
+
+func (x *SettlementScore) GetScore() int64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+type SettleMatchRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	MatchId         string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	LeaderboardType string                 `protobuf:"bytes,2,opt,name=leaderboard_type,json=leaderboardType,proto3" json:"leaderboard_type,omitempty"`
+	Scores          []*SettlementScore     `protobuf:"bytes,3,rep,name=scores,proto3" json:"scores,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SettleMatchRequest) Reset() {
+	*x = SettleMatchRequest{}
+	mi := &file_api_proto_rank_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SettleMatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SettleMatchRequest) ProtoMessage() {}
+
+func (x *SettleMatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SettleMatchRequest.ProtoReflect.Descriptor instead.
+func (*SettleMatchRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *SettleMatchRequest) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *SettleMatchRequest) GetLeaderboardType() string {
+	if x != nil {
+		return x.LeaderboardType
+	}
+	return ""
+}
+
+func (x *SettleMatchRequest) GetScores() []*SettlementScore {
+	if x != nil {
+		return x.Scores
+	}
+	return nil
+}
+
+type SettleMatchResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	MatchId         string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	LeaderboardType string                 `protobuf:"bytes,2,opt,name=leaderboard_type,json=leaderboardType,proto3" json:"leaderboard_type,omitempty"`
+	UpdatedPlayers  []*RankEntry           `protobuf:"bytes,3,rep,name=updated_players,json=updatedPlayers,proto3" json:"updated_players,omitempty"`
+	Idempotent      bool                   `protobuf:"varint,4,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SettleMatchResponse) Reset() {
+	*x = SettleMatchResponse{}
+	mi := &file_api_proto_rank_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SettleMatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SettleMatchResponse) ProtoMessage() {}
+
+func (x *SettleMatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_rank_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SettleMatchResponse.ProtoReflect.Descriptor instead.
+func (*SettleMatchResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *SettleMatchResponse) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *SettleMatchResponse) GetLeaderboardType() string {
+	if x != nil {
+		return x.LeaderboardType
+	}
+	return ""
+}
+
+func (x *SettleMatchResponse) GetUpdatedPlayers() []*RankEntry {
+	if x != nil {
+		return x.UpdatedPlayers
+	}
+	return nil
+}
+
+func (x *SettleMatchResponse) GetIdempotent() bool {
+	if x != nil {
+		return x.Idempotent
+	}
+	return false
+}
+
 // GetPlayerRankRequest 查询玩家排名请求
 type GetPlayerRankRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1561,7 +1762,7 @@ type GetPlayerRankRequest struct {
 
 func (x *GetPlayerRankRequest) Reset() {
 	*x = GetPlayerRankRequest{}
-	mi := &file_api_proto_rank_proto_msgTypes[24]
+	mi := &file_api_proto_rank_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1573,7 +1774,7 @@ func (x *GetPlayerRankRequest) String() string {
 func (*GetPlayerRankRequest) ProtoMessage() {}
 
 func (x *GetPlayerRankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[24]
+	mi := &file_api_proto_rank_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1586,7 +1787,7 @@ func (x *GetPlayerRankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlayerRankRequest.ProtoReflect.Descriptor instead.
 func (*GetPlayerRankRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{24}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetPlayerRankRequest) GetPlayerId() string {
@@ -1618,7 +1819,7 @@ type GetPlayerRankResponse struct {
 
 func (x *GetPlayerRankResponse) Reset() {
 	*x = GetPlayerRankResponse{}
-	mi := &file_api_proto_rank_proto_msgTypes[25]
+	mi := &file_api_proto_rank_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1630,7 +1831,7 @@ func (x *GetPlayerRankResponse) String() string {
 func (*GetPlayerRankResponse) ProtoMessage() {}
 
 func (x *GetPlayerRankResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[25]
+	mi := &file_api_proto_rank_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1643,7 +1844,7 @@ func (x *GetPlayerRankResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlayerRankResponse.ProtoReflect.Descriptor instead.
 func (*GetPlayerRankResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{25}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetPlayerRankResponse) GetFound() bool {
@@ -1680,7 +1881,7 @@ type RankEntry struct {
 
 func (x *RankEntry) Reset() {
 	*x = RankEntry{}
-	mi := &file_api_proto_rank_proto_msgTypes[26]
+	mi := &file_api_proto_rank_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1692,7 +1893,7 @@ func (x *RankEntry) String() string {
 func (*RankEntry) ProtoMessage() {}
 
 func (x *RankEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_rank_proto_msgTypes[26]
+	mi := &file_api_proto_rank_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1705,7 +1906,7 @@ func (x *RankEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RankEntry.ProtoReflect.Descriptor instead.
 func (*RankEntry) Descriptor() ([]byte, []int) {
-	return file_api_proto_rank_proto_rawDescGZIP(), []int{26}
+	return file_api_proto_rank_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *RankEntry) GetRank() int64 {
@@ -1761,7 +1962,7 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\x03R\tupdatedAt\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\n" +
-	" \x01(\x03R\texpiresAt\"\xf4\x01\n" +
+	" \x01(\x03R\texpiresAt\"\x93\x02\n" +
 	"\vMatchResult\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x17\n" +
 	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x1d\n" +
@@ -1774,7 +1975,9 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1b\n" +
 	"\tserver_id\x18\a \x01(\tR\bserverId\x12\x1f\n" +
 	"\vserver_addr\x18\b \x01(\tR\n" +
-	"serverAddr\"\xb7\x02\n" +
+	"serverAddr\x12\x1d\n" +
+	"\n" +
+	"join_token\x18\t \x01(\tR\tjoinToken\"\xdc\x02\n" +
 	"\n" +
 	"GameServer\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
@@ -1790,7 +1993,8 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\x11last_heartbeat_at\x18\t \x01(\x03R\x0flastHeartbeatAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\x03R\tupdatedAt\"\x93\x01\n" +
+	" \x01(\x03R\tupdatedAt\x12#\n" +
+	"\robserved_load\x18\v \x01(\x03R\fobservedLoad\"\x93\x01\n" +
 	"\x18CreateMatchTicketRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1b\n" +
 	"\tmmr_score\x18\x02 \x01(\x03R\bmmrScore\x12\x1d\n" +
@@ -1845,7 +2049,21 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\aentries\x18\x01 \x03(\v2\x16.corerank.v1.RankEntryR\aentries\x12#\n" +
 	"\rtotal_players\x18\x02 \x01(\x03R\ftotalPlayers\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"^\n" +
+	"updated_at\x18\x03 \x01(\x03R\tupdatedAt\"D\n" +
+	"\x0fSettlementScore\x12\x1b\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x14\n" +
+	"\x05score\x18\x02 \x01(\x03R\x05score\"\x90\x01\n" +
+	"\x12SettleMatchRequest\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12)\n" +
+	"\x10leaderboard_type\x18\x02 \x01(\tR\x0fleaderboardType\x124\n" +
+	"\x06scores\x18\x03 \x03(\v2\x1c.corerank.v1.SettlementScoreR\x06scores\"\xbc\x01\n" +
+	"\x13SettleMatchResponse\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12)\n" +
+	"\x10leaderboard_type\x18\x02 \x01(\tR\x0fleaderboardType\x12?\n" +
+	"\x0fupdated_players\x18\x03 \x03(\v2\x16.corerank.v1.RankEntryR\x0eupdatedPlayers\x12\x1e\n" +
+	"\n" +
+	"idempotent\x18\x04 \x01(\bR\n" +
+	"idempotent\"^\n" +
 	"\x14GetPlayerRankRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12)\n" +
 	"\x10leaderboard_type\x18\x02 \x01(\tR\x0fleaderboardType\"}\n" +
@@ -1855,9 +2073,10 @@ const file_api_proto_rank_proto_rawDesc = "" +
 	"\fcurrent_rank\x18\x03 \x01(\x03R\vcurrentRank\"L\n" +
 	"\tRankEntry\x12\x12\n" +
 	"\x04rank\x18\x01 \x01(\x03R\x04rank\x12+\n" +
-	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player2\x86\x02\n" +
+	"\x06player\x18\x02 \x01(\v2\x13.corerank.v1.PlayerR\x06player2\xd8\x02\n" +
 	"\vRankService\x12P\n" +
-	"\vUpdateScore\x12\x1f.corerank.v1.UpdateScoreRequest\x1a .corerank.v1.UpdateScoreResponse\x12M\n" +
+	"\vUpdateScore\x12\x1f.corerank.v1.UpdateScoreRequest\x1a .corerank.v1.UpdateScoreResponse\x12P\n" +
+	"\vSettleMatch\x12\x1f.corerank.v1.SettleMatchRequest\x1a .corerank.v1.SettleMatchResponse\x12M\n" +
 	"\n" +
 	"GetTopRank\x12\x1e.corerank.v1.GetTopRankRequest\x1a\x1f.corerank.v1.GetTopRankResponse\x12V\n" +
 	"\rGetPlayerRank\x12!.corerank.v1.GetPlayerRankRequest\x1a\".corerank.v1.GetPlayerRankResponse2\xbb\x05\n" +
@@ -1882,7 +2101,7 @@ func file_api_proto_rank_proto_rawDescGZIP() []byte {
 	return file_api_proto_rank_proto_rawDescData
 }
 
-var file_api_proto_rank_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_api_proto_rank_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_api_proto_rank_proto_goTypes = []any{
 	(*Player)(nil),                      // 0: corerank.v1.Player
 	(*MatchRequest)(nil),                // 1: corerank.v1.MatchRequest
@@ -1908,9 +2127,12 @@ var file_api_proto_rank_proto_goTypes = []any{
 	(*UpdateScoreResponse)(nil),         // 21: corerank.v1.UpdateScoreResponse
 	(*GetTopRankRequest)(nil),           // 22: corerank.v1.GetTopRankRequest
 	(*GetTopRankResponse)(nil),          // 23: corerank.v1.GetTopRankResponse
-	(*GetPlayerRankRequest)(nil),        // 24: corerank.v1.GetPlayerRankRequest
-	(*GetPlayerRankResponse)(nil),       // 25: corerank.v1.GetPlayerRankResponse
-	(*RankEntry)(nil),                   // 26: corerank.v1.RankEntry
+	(*SettlementScore)(nil),             // 24: corerank.v1.SettlementScore
+	(*SettleMatchRequest)(nil),          // 25: corerank.v1.SettleMatchRequest
+	(*SettleMatchResponse)(nil),         // 26: corerank.v1.SettleMatchResponse
+	(*GetPlayerRankRequest)(nil),        // 27: corerank.v1.GetPlayerRankRequest
+	(*GetPlayerRankResponse)(nil),       // 28: corerank.v1.GetPlayerRankResponse
+	(*RankEntry)(nil),                   // 29: corerank.v1.RankEntry
 }
 var file_api_proto_rank_proto_depIdxs = []int32{
 	0,  // 0: corerank.v1.MatchResponse.opponents:type_name -> corerank.v1.Player
@@ -1923,34 +2145,38 @@ var file_api_proto_rank_proto_depIdxs = []int32{
 	5,  // 7: corerank.v1.HeartbeatGameServerResponse.server:type_name -> corerank.v1.GameServer
 	5,  // 8: corerank.v1.ListGameServersResponse.servers:type_name -> corerank.v1.GameServer
 	0,  // 9: corerank.v1.UpdateScoreResponse.player:type_name -> corerank.v1.Player
-	26, // 10: corerank.v1.GetTopRankResponse.entries:type_name -> corerank.v1.RankEntry
-	0,  // 11: corerank.v1.GetPlayerRankResponse.player:type_name -> corerank.v1.Player
-	0,  // 12: corerank.v1.RankEntry.player:type_name -> corerank.v1.Player
-	20, // 13: corerank.v1.RankService.UpdateScore:input_type -> corerank.v1.UpdateScoreRequest
-	22, // 14: corerank.v1.RankService.GetTopRank:input_type -> corerank.v1.GetTopRankRequest
-	24, // 15: corerank.v1.RankService.GetPlayerRank:input_type -> corerank.v1.GetPlayerRankRequest
-	6,  // 16: corerank.v1.MatchService.CreateMatchTicket:input_type -> corerank.v1.CreateMatchTicketRequest
-	8,  // 17: corerank.v1.MatchService.GetMatchTicket:input_type -> corerank.v1.GetMatchTicketRequest
-	10, // 18: corerank.v1.MatchService.CancelMatchTicket:input_type -> corerank.v1.CancelMatchTicketRequest
-	12, // 19: corerank.v1.MatchService.GetMatchResult:input_type -> corerank.v1.GetMatchResultRequest
-	14, // 20: corerank.v1.MatchService.RegisterGameServer:input_type -> corerank.v1.RegisterGameServerRequest
-	16, // 21: corerank.v1.MatchService.HeartbeatGameServer:input_type -> corerank.v1.HeartbeatGameServerRequest
-	18, // 22: corerank.v1.MatchService.ListGameServers:input_type -> corerank.v1.ListGameServersRequest
-	21, // 23: corerank.v1.RankService.UpdateScore:output_type -> corerank.v1.UpdateScoreResponse
-	23, // 24: corerank.v1.RankService.GetTopRank:output_type -> corerank.v1.GetTopRankResponse
-	25, // 25: corerank.v1.RankService.GetPlayerRank:output_type -> corerank.v1.GetPlayerRankResponse
-	7,  // 26: corerank.v1.MatchService.CreateMatchTicket:output_type -> corerank.v1.CreateMatchTicketResponse
-	9,  // 27: corerank.v1.MatchService.GetMatchTicket:output_type -> corerank.v1.GetMatchTicketResponse
-	11, // 28: corerank.v1.MatchService.CancelMatchTicket:output_type -> corerank.v1.CancelMatchTicketResponse
-	13, // 29: corerank.v1.MatchService.GetMatchResult:output_type -> corerank.v1.GetMatchResultResponse
-	15, // 30: corerank.v1.MatchService.RegisterGameServer:output_type -> corerank.v1.RegisterGameServerResponse
-	17, // 31: corerank.v1.MatchService.HeartbeatGameServer:output_type -> corerank.v1.HeartbeatGameServerResponse
-	19, // 32: corerank.v1.MatchService.ListGameServers:output_type -> corerank.v1.ListGameServersResponse
-	23, // [23:33] is the sub-list for method output_type
-	13, // [13:23] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	29, // 10: corerank.v1.GetTopRankResponse.entries:type_name -> corerank.v1.RankEntry
+	24, // 11: corerank.v1.SettleMatchRequest.scores:type_name -> corerank.v1.SettlementScore
+	29, // 12: corerank.v1.SettleMatchResponse.updated_players:type_name -> corerank.v1.RankEntry
+	0,  // 13: corerank.v1.GetPlayerRankResponse.player:type_name -> corerank.v1.Player
+	0,  // 14: corerank.v1.RankEntry.player:type_name -> corerank.v1.Player
+	20, // 15: corerank.v1.RankService.UpdateScore:input_type -> corerank.v1.UpdateScoreRequest
+	25, // 16: corerank.v1.RankService.SettleMatch:input_type -> corerank.v1.SettleMatchRequest
+	22, // 17: corerank.v1.RankService.GetTopRank:input_type -> corerank.v1.GetTopRankRequest
+	27, // 18: corerank.v1.RankService.GetPlayerRank:input_type -> corerank.v1.GetPlayerRankRequest
+	6,  // 19: corerank.v1.MatchService.CreateMatchTicket:input_type -> corerank.v1.CreateMatchTicketRequest
+	8,  // 20: corerank.v1.MatchService.GetMatchTicket:input_type -> corerank.v1.GetMatchTicketRequest
+	10, // 21: corerank.v1.MatchService.CancelMatchTicket:input_type -> corerank.v1.CancelMatchTicketRequest
+	12, // 22: corerank.v1.MatchService.GetMatchResult:input_type -> corerank.v1.GetMatchResultRequest
+	14, // 23: corerank.v1.MatchService.RegisterGameServer:input_type -> corerank.v1.RegisterGameServerRequest
+	16, // 24: corerank.v1.MatchService.HeartbeatGameServer:input_type -> corerank.v1.HeartbeatGameServerRequest
+	18, // 25: corerank.v1.MatchService.ListGameServers:input_type -> corerank.v1.ListGameServersRequest
+	21, // 26: corerank.v1.RankService.UpdateScore:output_type -> corerank.v1.UpdateScoreResponse
+	26, // 27: corerank.v1.RankService.SettleMatch:output_type -> corerank.v1.SettleMatchResponse
+	23, // 28: corerank.v1.RankService.GetTopRank:output_type -> corerank.v1.GetTopRankResponse
+	28, // 29: corerank.v1.RankService.GetPlayerRank:output_type -> corerank.v1.GetPlayerRankResponse
+	7,  // 30: corerank.v1.MatchService.CreateMatchTicket:output_type -> corerank.v1.CreateMatchTicketResponse
+	9,  // 31: corerank.v1.MatchService.GetMatchTicket:output_type -> corerank.v1.GetMatchTicketResponse
+	11, // 32: corerank.v1.MatchService.CancelMatchTicket:output_type -> corerank.v1.CancelMatchTicketResponse
+	13, // 33: corerank.v1.MatchService.GetMatchResult:output_type -> corerank.v1.GetMatchResultResponse
+	15, // 34: corerank.v1.MatchService.RegisterGameServer:output_type -> corerank.v1.RegisterGameServerResponse
+	17, // 35: corerank.v1.MatchService.HeartbeatGameServer:output_type -> corerank.v1.HeartbeatGameServerResponse
+	19, // 36: corerank.v1.MatchService.ListGameServers:output_type -> corerank.v1.ListGameServersResponse
+	26, // [26:37] is the sub-list for method output_type
+	15, // [15:26] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_rank_proto_init() }
@@ -1964,7 +2190,7 @@ func file_api_proto_rank_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_rank_proto_rawDesc), len(file_api_proto_rank_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   27,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

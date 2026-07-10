@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,11 +83,11 @@ func acquireRedisTestLock(t *testing.T, client *redis.Client) func() {
 }
 
 func cleanMatchServiceTestKeys(ctx context.Context, client *redis.Client) error {
-	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
+	if err := client.Del(ctx, repository.MatchPoolKey, repository.MatchTicketPoolKey, repository.MatchTicketModesKey, repository.MatchTicketExpiryKey, repository.GlobalRankKey).Err(); err != nil {
 		return err
 	}
 
-	for _, pattern := range []string{"match:*", "server:*", "room:assignment:*"} {
+	for _, pattern := range []string{"match:*", "{match:*}", "server:*", "room:assignment:*", "{rank:*}"} {
 		var cursor uint64
 		for {
 			keys, nextCursor, err := client.Scan(ctx, cursor, pattern, 100).Result()
@@ -198,6 +199,150 @@ func TestMatchTicketsCreateMatchedResult(t *testing.T) {
 	}
 }
 
+func TestMatchTicketsNeverCrossMatchModes(t *testing.T) {
+	matchService, cleanup := newTestMatchService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	defaultFirst, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "default-p1", MMRScore: 1200, MatchMode: "default", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create default ticket: %v", err)
+	}
+	duelFirst, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "duel-p1", MMRScore: 1205, MatchMode: "duel", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create duel ticket: %v", err)
+	}
+	if defaultFirst.Status != repository.MatchStatusQueued || duelFirst.Status != repository.MatchStatusQueued {
+		t.Fatalf("different modes must not match each other: default=%#v duel=%#v", defaultFirst, duelFirst)
+	}
+
+	defaultSecond, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "default-p2", MMRScore: 1210, MatchMode: "default", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create second default ticket: %v", err)
+	}
+	if defaultSecond.Status != repository.MatchStatusMatched {
+		t.Fatalf("default mode should match within its queue, got %#v", defaultSecond)
+	}
+	defaultResult, err := matchService.GetResult(ctx, defaultSecond.MatchID)
+	if err != nil {
+		t.Fatalf("get default result: %v", err)
+	}
+	if defaultResult.MatchMode != "default" || !reflect.DeepEqual(defaultResult.PlayerIDs, []string{"default-p1", "default-p2"}) {
+		t.Fatalf("unexpected default result: %#v", defaultResult)
+	}
+
+	duelQueued, err := matchService.GetTicket(ctx, duelFirst.TicketID)
+	if err != nil {
+		t.Fatalf("get queued duel ticket: %v", err)
+	}
+	if duelQueued.Status != repository.MatchStatusQueued {
+		t.Fatalf("duel ticket must remain queued, got %#v", duelQueued)
+	}
+
+	duelSecond, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "duel-p2", MMRScore: 1215, MatchMode: "duel", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create second duel ticket: %v", err)
+	}
+	duelResult, err := matchService.GetResult(ctx, duelSecond.MatchID)
+	if err != nil {
+		t.Fatalf("get duel result: %v", err)
+	}
+	if duelResult.MatchMode != "duel" || !reflect.DeepEqual(duelResult.PlayerIDs, []string{"duel-p1", "duel-p2"}) {
+		t.Fatalf("unexpected duel result: %#v", duelResult)
+	}
+}
+
+func TestMatchSettlementValidatesPlayersIsIdempotentAndReleasesCapacity(t *testing.T) {
+	matchService, roomServerRepo, cleanup := newTestMatchServiceWithRoomServers(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	_, err := matchService.RegisterGameServer(ctx, repository.GameServer{
+		ServerID: "settlement-room", Addr: "127.0.0.1:7501", MatchMode: "duel",
+		Capacity: 2, Status: repository.GameServerStatusActive,
+	})
+	if err != nil {
+		t.Fatalf("register room server: %v", err)
+	}
+	_, err = matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "settle-p1", MMRScore: 1500, MatchMode: "duel", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create first ticket: %v", err)
+	}
+	second, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "settle-p2", MMRScore: 1510, MatchMode: "duel", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create second ticket: %v", err)
+	}
+	if second.Status != repository.MatchStatusMatched {
+		t.Fatalf("match should be ready for settlement, got %#v", second)
+	}
+
+	rankService := NewRankService(matchService.playerRepo)
+	_, err = rankService.SettleMatch(ctx, second.MatchID, "global", []repository.SettlementScore{
+		{PlayerID: "settle-p1", Score: 100},
+		{PlayerID: "outsider", Score: 9999},
+	})
+	if !errors.Is(err, ErrInvalidSettlementPlayers) {
+		t.Fatalf("outsider settlement must be rejected, got %v", err)
+	}
+	if _, err := matchService.playerRepo.GetPlayerScore(ctx, "outsider"); !errors.Is(err, redis.Nil) {
+		t.Fatalf("outsider score must not be written, got %v", err)
+	}
+
+	scores := []repository.SettlementScore{
+		{PlayerID: "settle-p1", Score: 1200},
+		{PlayerID: "settle-p2", Score: 1100},
+	}
+	settled, err := rankService.SettleMatch(ctx, second.MatchID, "global", scores)
+	if err != nil {
+		t.Fatalf("settle match: %v", err)
+	}
+	if settled.Idempotent {
+		t.Fatal("first settlement must not be reported as idempotent replay")
+	}
+	server, err := roomServerRepo.GetGameServer(ctx, "settlement-room")
+	if err != nil {
+		t.Fatalf("get released room server: %v", err)
+	}
+	if server.CurrentLoad != 0 {
+		t.Fatalf("settlement must release reserved capacity, got %#v", server)
+	}
+
+	replayed, err := rankService.SettleMatch(ctx, second.MatchID, "global", []repository.SettlementScore{
+		{PlayerID: "settle-p2", Score: 1100},
+		{PlayerID: "settle-p1", Score: 1200},
+	})
+	if err != nil {
+		t.Fatalf("replay identical settlement: %v", err)
+	}
+	if !replayed.Idempotent {
+		t.Fatal("identical settlement replay must be idempotent")
+	}
+
+	_, err = rankService.SettleMatch(ctx, second.MatchID, "global", []repository.SettlementScore{
+		{PlayerID: "settle-p1", Score: 1},
+		{PlayerID: "settle-p2", Score: 2},
+	})
+	if !errors.Is(err, repository.ErrSettlementConflict) {
+		t.Fatalf("different settlement replay must conflict, got %v", err)
+	}
+	score, err := matchService.playerRepo.GetPlayerScore(ctx, "settle-p1")
+	if err != nil || score != 1200 {
+		t.Fatalf("conflicting replay must not alter scores, score=%v err=%v", score, err)
+	}
+}
+
 func TestMatchServiceUsesRoomAllocator(t *testing.T) {
 	matchService, cleanup := newTestMatchService(t)
 	defer cleanup()
@@ -263,7 +408,7 @@ func TestMatchServiceRequeuesTicketsWhenRoomAllocationFails(t *testing.T) {
 		t.Fatalf("second ticket should stay queued when no room server is available, got %#v", second)
 	}
 
-	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx, defaultMatchMode)
 	if err != nil {
 		t.Fatalf("count queued tickets: %v", err)
 	}
@@ -280,7 +425,7 @@ func TestMatchServiceRequeuesTicketsWhenRoomAllocationFails(t *testing.T) {
 		t.Fatalf("expected requeued tickets to complete after allocator recovers, got %#v", result)
 	}
 
-	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx, defaultMatchMode)
 	if err != nil {
 		t.Fatalf("count queued tickets after recovery: %v", err)
 	}
@@ -340,7 +485,7 @@ func TestMatchServiceRequeuesTicketsWhenRoomServerCapacityIsInsufficient(t *test
 		t.Fatalf("first ticket should stay queued without a partial match result, got %#v", refreshedFirst)
 	}
 
-	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx, "duel")
 	if err != nil {
 		t.Fatalf("count queued tickets: %v", err)
 	}
@@ -375,7 +520,7 @@ func TestMatchServiceRequeuesTicketsWhenRoomServerCapacityIsInsufficient(t *test
 		t.Fatalf("expected recovered room server assignment, got %#v", result)
 	}
 
-	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx)
+	queued, err = matchService.playerRepo.CountQueuedMatchTickets(ctx, "duel")
 	if err != nil {
 		t.Fatalf("count queued tickets after recovery: %v", err)
 	}
@@ -460,6 +605,50 @@ func TestMatchTicketCanTimeout(t *testing.T) {
 	}
 	if retry.Status != repository.MatchStatusQueued {
 		t.Fatalf("retry ticket should be queued, got %#v", retry)
+	}
+}
+
+func TestCancelAndTimeoutRaceLeavesOneTerminalState(t *testing.T) {
+	matchService, cleanup := newTestMatchService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	ticket, err := matchService.CreateTicket(ctx, CreateMatchTicketRequest{
+		PlayerID: "race-terminal", MMRScore: 1500, MatchMode: "duel", MaxWait: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _ = matchService.CancelTicket(ctx, ticket.TicketID)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _ = matchService.TimeoutExpiredTickets(ctx, time.UnixMilli(ticket.ExpiresAt+1), 10)
+	}()
+	close(start)
+	wg.Wait()
+
+	finalTicket, err := matchService.GetTicket(ctx, ticket.TicketID)
+	if err != nil {
+		t.Fatalf("get terminal ticket: %v", err)
+	}
+	if finalTicket.Status != repository.MatchStatusCancelled && finalTicket.Status != repository.MatchStatusTimeout {
+		t.Fatalf("expected exactly one terminal state, got %#v", finalTicket)
+	}
+	if _, err := matchService.playerRepo.GetPlayerTicketID(ctx, ticket.PlayerID); !errors.Is(err, redis.Nil) {
+		t.Fatalf("terminal transition must remove player mapping, got %v", err)
+	}
+	queued, err := matchService.playerRepo.CountQueuedMatchTickets(ctx, "duel")
+	if err != nil || queued != 0 {
+		t.Fatalf("terminal transition must drain queue, queued=%d err=%v", queued, err)
 	}
 }
 

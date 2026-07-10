@@ -101,6 +101,8 @@ message MatchResult {
     int64 created_at = 6;
     string server_id = 7;
     string server_addr = 8;
+    // Token required by the assigned roomserver during TCP join.
+    string join_token = 9;
 }
 
 // GameServer 房间/战斗服务器状态
@@ -115,6 +117,9 @@ message GameServer {
     string status = 8;
     int64 last_heartbeat_at = 9;
     int64 updated_at = 10;
+    // Player connections reported by roomserver heartbeats. current_load is
+    // the allocator-owned reservation count.
+    int64 observed_load = 11;
 }
 
 // CreateMatchTicketRequest 创建匹配票据请求
@@ -202,6 +207,7 @@ message UpdateScoreRequest {
     int64 new_score = 2;
     
     // 分数变化类型：ABSOLUTE（绝对值）/ INCREMENT（增量）
+    // V1 accepts an empty value or ABSOLUTE. INCREMENT is not implemented.
     string change_type = 3;
 
     // 排行榜类型/维度（为空时使用全局榜）
@@ -229,6 +235,7 @@ message GetTopRankRequest {
     int32 top_n = 2;
     
     // 分页偏移量（可选，用于获取"我的附近排名"场景）
+    // Zero-based pagination offset, limited by the service.
     int64 offset = 3;
 }
 
@@ -242,6 +249,24 @@ message GetTopRankResponse {
     
     // 数据更新时间戳
     int64 updated_at = 3;
+}
+
+message SettlementScore {
+    string player_id = 1;
+    int64 score = 2;
+}
+
+message SettleMatchRequest {
+    string match_id = 1;
+    string leaderboard_type = 2;
+    repeated SettlementScore scores = 3;
+}
+
+message SettleMatchResponse {
+    string match_id = 1;
+    string leaderboard_type = 2;
+    repeated RankEntry updated_players = 3;
+    bool idempotent = 4;
 }
 
 // GetPlayerRankRequest 查询玩家排名请求
@@ -288,6 +313,8 @@ service RankService {
     // 
     // 性能要求：P99 延迟 < 10ms
     rpc UpdateScore(UpdateScoreRequest) returns (UpdateScoreResponse);
+
+    rpc SettleMatch(SettleMatchRequest) returns (SettleMatchResponse);
     
     // GetTopRank 获取排行榜
     // 
